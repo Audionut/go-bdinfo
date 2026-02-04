@@ -176,6 +176,12 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	}
 	if flags.Changed("forumsonly") {
 		s.ForumsOnly = opts.forumsOnly
+		if s.ForumsOnly {
+			// If forumsonly is set, generate only forums
+			s.GenerateForums = true
+			s.GenerateSummary = false
+			s.GenerateText = false
+		}
 	}
 	if flags.Changed("main") {
 		s.MainPlaylistOnly = opts.mainOnly
@@ -183,6 +189,10 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	if flags.Changed("summaryonly") {
 		s.SummaryOnly = opts.summaryOnly
 		if s.SummaryOnly {
+			// If summaryonly is set, generate only summary
+			s.GenerateForums = false
+			s.GenerateSummary = true
+			s.GenerateText = false
 			s.GenerateTextSummary = true
 		}
 	}

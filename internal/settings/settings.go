@@ -18,6 +18,10 @@ type Settings struct {
 	ForumsOnly                bool
 	MainPlaylistOnly          bool
 	SummaryOnly               bool
+	// Report types to generate: empty map means generate all; non-empty map means generate only selected types
+	GenerateForums  bool
+	GenerateSummary bool
+	GenerateText    bool
 }
 
 func Default(reportBaseDir string) Settings {
@@ -36,5 +40,8 @@ func Default(reportBaseDir string) Settings {
 		ForumsOnly:                false,
 		MainPlaylistOnly:          false,
 		SummaryOnly:               false,
+		GenerateForums:            true, // Generate all by default
+		GenerateSummary:           true,
+		GenerateText:              true,
 	}
 }

@@ -32,15 +32,12 @@ func WriteReport(path string, bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, 
 		reportName = path
 	}
 
-	if reportName != "-" {
-		if _, err := os.Stat(reportName); err == nil {
-			backup := fmt.Sprintf("%s.%d", reportName, time.Now().Unix())
-			_ = os.Rename(reportName, backup)
-		}
-	}
+	// Generate the full report
+	fullReport := generateFullReport(bd, playlists, scan, settings)
 
+	// If summary-only mode, just extract and return summary
 	if settings.SummaryOnly {
-		output := buildSummaryOnly(bd, playlists, settings)
+		output := extractQuickSummary(fullReport)
 		if reportName == "-" {
 			_, err := os.Stdout.WriteString(output)
 			return reportName, err
@@ -48,6 +45,87 @@ func WriteReport(path string, bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, 
 		return reportName, os.WriteFile(reportName, []byte(output), 0o644)
 	}
 
+	// Determine which report types to generate
+	generateText := settings.GenerateText
+	generateForums := settings.GenerateForums
+	generateSummary := settings.GenerateSummary
+
+	// Handle legacy behavior
+	if settings.ForumsOnly {
+		generateText = false
+		generateForums = true
+		generateSummary = false
+	}
+
+	// If stdout mode, write only one format
+	if reportName == "-" {
+		var output string
+		if generateText {
+			output = fullReport
+		} else if generateForums {
+			output = extractForumsBlocks(fullReport)
+		} else if generateSummary {
+			output = extractQuickSummary(fullReport)
+		} else {
+			output = fullReport
+		}
+		_, err := os.Stdout.WriteString(output)
+		return reportName, err
+	}
+
+	// For file output, generate all requested formats
+	baseReportName := reportName
+	baseExt := filepath.Ext(baseReportName)
+	baseName := strings.TrimSuffix(baseReportName, baseExt)
+
+	writtenFiles := []string{}
+
+	// Write text report
+	if generateText {
+		textFile := baseName + ".bdinfo"
+		if err := writeReportFile(textFile, fullReport); err != nil {
+			return "", err
+		}
+		writtenFiles = append(writtenFiles, textFile)
+	}
+
+	// Write forums-only report
+	if generateForums {
+		forumsFile := baseName + ".forums.bdinfo"
+		forumsOutput := extractForumsBlocks(fullReport)
+		if err := writeReportFile(forumsFile, forumsOutput); err != nil {
+			return "", err
+		}
+		writtenFiles = append(writtenFiles, forumsFile)
+	}
+
+	// Write summary-only report
+	if generateSummary {
+		summaryFile := baseName + ".summary.bdinfo"
+		summaryOutput := extractQuickSummary(fullReport)
+		if err := writeReportFile(summaryFile, summaryOutput); err != nil {
+			return "", err
+		}
+		writtenFiles = append(writtenFiles, summaryFile)
+	}
+
+	// Return the first written file for compatibility
+	if len(writtenFiles) > 0 {
+		return writtenFiles[0], nil
+	}
+
+	return baseReportName, nil
+}
+
+func writeReportFile(filename string, content string) error {
+	if _, err := os.Stat(filename); err == nil {
+		backup := fmt.Sprintf("%s.%d", filename, time.Now().Unix())
+		_ = os.Rename(filename, backup)
+	}
+	return os.WriteFile(filename, []byte(content), 0o644)
+}
+
+func generateFullReport(bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, scan bdrom.ScanResult, settings settings.Settings) string {
 	var b strings.Builder
 	protection := "AACS"
 	if bd.IsBDPlus {
@@ -423,17 +501,7 @@ func WriteReport(path string, bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, 
 		}
 	}
 
-	output := b.String()
-	if settings.SummaryOnly {
-		output = extractQuickSummary(output)
-	} else if settings.ForumsOnly {
-		output = extractForumsBlocks(output)
-	}
-	if reportName == "-" {
-		_, err := os.Stdout.WriteString(output)
-		return reportName, err
-	}
-	return reportName, os.WriteFile(reportName, []byte(output), 0o644)
+	return b.String()
 }
 
 func selectMainPlaylist(playlists []*bdrom.PlaylistFile, settings settings.Settings) []*bdrom.PlaylistFile {
