@@ -3,6 +3,9 @@ package bdinfo
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/autobrr/go-bdinfo/internal/bdrom"
@@ -48,6 +51,7 @@ type Settings struct {
 	IncludeVersionAndNotes    bool
 	GroupByTime               bool
 	ForumsOnly                bool
+	PlaylistOnly              string
 	MainPlaylistOnly          bool
 	SummaryOnly               bool
 }
@@ -133,6 +137,10 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	}
 	defer rom.Close()
 
+	if err := filterROMToPlaylist(rom, cfg.PlaylistOnly); err != nil {
+		return Result{}, err
+	}
+
 	emit(options.OnProgress, ProgressEvent{
 		Stage:      StageDiscovered,
 		Path:       options.Path,
@@ -198,6 +206,38 @@ func emit(cb func(ProgressEvent), event ProgressEvent) {
 	if cb != nil {
 		cb(event)
 	}
+}
+
+func normalizePlaylistName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return ""
+	}
+	base := filepath.Base(trimmed)
+	normalized := strings.ToUpper(base)
+	if filepath.Ext(normalized) == "" {
+		normalized += ".MPLS"
+	}
+	return normalized
+}
+
+func filterROMToPlaylist(rom *bdrom.BDROM, playlistName string) error {
+	if rom == nil {
+		return errors.New("rom is nil")
+	}
+	normalized := normalizePlaylistName(playlistName)
+	if normalized == "" {
+		return nil
+	}
+
+	pl, ok := rom.PlaylistFiles[normalized]
+	if !ok {
+		return fmt.Errorf("playlist not found: %s", normalized)
+	}
+
+	rom.PlaylistFiles = map[string]*bdrom.PlaylistFile{normalized: pl}
+	rom.PlaylistOrder = []string{normalized}
+	return nil
 }
 
 func orderedPlaylists(rom *bdrom.BDROM) []*bdrom.PlaylistFile {
@@ -279,6 +319,7 @@ func fromInternalSettings(s internalsettings.Settings) Settings {
 		IncludeVersionAndNotes:    s.IncludeVersionAndNotes,
 		GroupByTime:               s.GroupByTime,
 		ForumsOnly:                s.ForumsOnly,
+		PlaylistOnly:              s.PlaylistOnly,
 		MainPlaylistOnly:          s.MainPlaylistOnly,
 		SummaryOnly:               s.SummaryOnly,
 	}
@@ -299,6 +340,7 @@ func toInternalSettings(s Settings) internalsettings.Settings {
 		IncludeVersionAndNotes:    s.IncludeVersionAndNotes,
 		GroupByTime:               s.GroupByTime,
 		ForumsOnly:                s.ForumsOnly,
+		PlaylistOnly:              normalizePlaylistName(s.PlaylistOnly),
 		MainPlaylistOnly:          s.MainPlaylistOnly,
 		SummaryOnly:               s.SummaryOnly,
 	}
