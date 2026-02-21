@@ -52,6 +52,32 @@ Path is required (ISO file or Blu-ray folder).
 
 Report default: `BDInfo_{0}.bdinfo` (disc label substituted).
 
+## Library Usage
+
+Import the root package to analyze a single disc and render report text:
+
+```go
+package main
+
+import (
+  "context"
+  "fmt"
+
+  bdinfo "github.com/autobrr/go-bdinfo"
+)
+
+func main() {
+  opts := bdinfo.DefaultOptions()
+  analysis, reportText, err := bdinfo.AnalyzeAndRender(context.Background(), "/path/to/disc-or.iso", &opts)
+  if err != nil {
+    panic(err)
+  }
+
+  fmt.Println("disc:", analysis.Disc.VolumeLabel)
+  fmt.Println(reportText)
+}
+```
+
 ## Options
 
 - `-o, --reportfilename` (use `-` for stdout)

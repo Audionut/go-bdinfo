@@ -40,13 +40,18 @@ func WriteReport(path string, bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, 
 		}
 	}
 
+	output := BuildReport(bd, playlists, scan, settings)
+	if reportName == "-" {
+		_, err := os.Stdout.WriteString(output)
+		return reportName, err
+	}
+	return reportName, os.WriteFile(reportName, []byte(output), 0o644)
+}
+
+func BuildReport(bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, scan bdrom.ScanResult, settings settings.Settings) string {
+
 	if settings.SummaryOnly {
-		output := buildSummaryOnly(bd, playlists, settings)
-		if reportName == "-" {
-			_, err := os.Stdout.WriteString(output)
-			return reportName, err
-		}
-		return reportName, os.WriteFile(reportName, []byte(output), 0o644)
+		return buildSummaryOnly(bd, playlists, settings)
 	}
 
 	var b strings.Builder
@@ -507,11 +512,7 @@ func WriteReport(path string, bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, 
 	} else if settings.ForumsOnly {
 		output = extractForumsBlocks(output)
 	}
-	if reportName == "-" {
-		_, err := os.Stdout.WriteString(output)
-		return reportName, err
-	}
-	return reportName, os.WriteFile(reportName, []byte(output), 0o644)
+	return output
 }
 
 func selectMainPlaylist(playlists []*bdrom.PlaylistFile, settings settings.Settings) []*bdrom.PlaylistFile {

@@ -13,8 +13,7 @@ import (
 	"github.com/creativeprojects/go-selfupdate"
 	"github.com/spf13/cobra"
 
-	"github.com/autobrr/go-bdinfo/internal/bdrom"
-	"github.com/autobrr/go-bdinfo/internal/report"
+	bdinfo "github.com/autobrr/go-bdinfo"
 	"github.com/autobrr/go-bdinfo/internal/settings"
 )
 
@@ -429,33 +428,38 @@ func runForPath(path string, settings settings.Settings, progress bool) error {
 }
 
 func scanAndReport(path string, settings settings.Settings, progress bool) (string, error) {
-	rom, err := bdrom.New(path, settings)
-	if err != nil {
-		return "", err
+	libOpts := bdinfo.Options{
+		GenerateStreamDiagnostics: settings.GenerateStreamDiagnostics,
+		ExtendedStreamDiagnostics: settings.ExtendedStreamDiagnostics,
+		EnableSSIF:                settings.EnableSSIF,
+		BigPlaylistOnly:           settings.BigPlaylistOnly,
+		FilterLoopingPlaylists:    settings.FilterLoopingPlaylists,
+		FilterShortPlaylists:      settings.FilterShortPlaylists,
+		FilterShortPlaylistsVal:   settings.FilterShortPlaylistsVal,
+		KeepStreamOrder:           settings.KeepStreamOrder,
+		GenerateTextSummary:       settings.GenerateTextSummary,
+		ReportFileName:            settings.ReportFileName,
+		IncludeVersionAndNotes:    settings.IncludeVersionAndNotes,
+		GroupByTime:               settings.GroupByTime,
+		ForumsOnly:                settings.ForumsOnly,
+		MainPlaylistOnly:          settings.MainPlaylistOnly,
+		SummaryOnly:               settings.SummaryOnly,
 	}
-	defer rom.Close()
 
 	start := time.Now()
 	if progress {
 		fmt.Fprintf(os.Stderr, "Scanning: %s\n", path)
-		fmt.Fprintf(os.Stderr, "Found %d playlists, %d clip infos, %d streams\n", len(rom.PlaylistFiles), len(rom.StreamClipFiles), len(rom.StreamFiles))
 	}
 
-	result := rom.Scan()
-
-	playlists := make([]*bdrom.PlaylistFile, 0, len(rom.PlaylistFiles))
-	if len(rom.PlaylistOrder) > 0 {
-		for _, name := range rom.PlaylistOrder {
-			if pl, ok := rom.PlaylistFiles[name]; ok {
-				playlists = append(playlists, pl)
-			}
-		}
-	} else {
-		for _, pl := range rom.PlaylistFiles {
-			playlists = append(playlists, pl)
-		}
+	analysis, err := bdinfo.Analyze(context.Background(), path, &libOpts)
+	if err != nil {
+		return "", err
 	}
-	reportPath, err := report.WriteReport("", rom, playlists, result, settings)
+	if progress {
+		fmt.Fprintf(os.Stderr, "Found %d playlists\n", len(analysis.Playlists))
+	}
+
+	reportPath, err := bdinfo.WriteReport(context.Background(), "", analysis, &libOpts)
 	if err != nil {
 		return "", err
 	}
