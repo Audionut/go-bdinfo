@@ -64,10 +64,11 @@ func DefaultSettings(reportBaseDir string) Settings {
 
 // Options configure one Run call for a single disc folder or ISO path.
 type Options struct {
-	Path       string
-	ReportPath string
-	Settings   Settings
-	OnProgress func(ProgressEvent)
+	Path           string
+	ReportPath     string
+	Settings       Settings
+	OnScanProgress func(bdrom.ScanProgress)
+	OnProgress     func(ProgressEvent)
 }
 
 // DiscInfo contains high-level disc metadata.
@@ -159,7 +160,12 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		Path:       options.Path,
 		OccurredAt: time.Now(),
 	})
-	scan := rom.Scan()
+	var scan bdrom.ScanResult
+	if options.OnScanProgress != nil {
+		scan = rom.ScanWithProgress(options.OnScanProgress)
+	} else {
+		scan = rom.Scan()
+	}
 
 	emit(options.OnProgress, ProgressEvent{
 		Stage:      StageScanComplete,
