@@ -483,7 +483,7 @@ func scanAndReport(ctx context.Context, path string, settings settings.Settings,
 	result, err := bdinfo.Run(ctx, bdinfo.Options{
 		Path:     path,
 		Settings: toLibrarySettings(settings),
-		OnScanProgress: func(update bdrom.ScanProgress) {
+		OnScanProgress: func(update bdinfo.ScanProgress) {
 			if progressPrinter == nil {
 				return
 			}
@@ -554,7 +554,7 @@ func writeReport(reportPath string, output string) error {
 type scanProgressPrinter struct {
 	mu             sync.Mutex
 	out            *os.File
-	lastStage      bdrom.ScanProgressStage
+	lastStage      bdinfo.ScanProgressStage
 	lastStreamEmit time.Time
 	streamStart    time.Time
 	lastStreamAt   time.Time
@@ -576,13 +576,13 @@ func (p *scanProgressPrinter) Finish() {
 	}
 }
 
-func (p *scanProgressPrinter) Update(update bdrom.ScanProgress) {
+func (p *scanProgressPrinter) Update(update bdinfo.ScanProgress) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	now := time.Now()
 	stageChanged := update.Stage != p.lastStage
-	if update.Stage == bdrom.ScanStageStream && p.streamStart.IsZero() {
+	if update.Stage == bdinfo.ScanProgressStageStream && p.streamStart.IsZero() {
 		p.streamStart = now
 		p.lastStreamAt = now
 		p.lastStreamByte = update.ProcessedBytes
@@ -594,8 +594,8 @@ func (p *scanProgressPrinter) Update(update bdrom.ScanProgress) {
 		p.lastStage = update.Stage
 	}
 
-	force := stageChanged || (update.Total > 0 && update.Completed >= update.Total) || update.Stage == bdrom.ScanStageComplete
-	if update.Stage == bdrom.ScanStageStream && !force && !p.lastStreamEmit.IsZero() && now.Sub(p.lastStreamEmit) < 250*time.Millisecond {
+	force := stageChanged || (update.Total > 0 && update.Completed >= update.Total) || update.Stage == bdinfo.ScanProgressStageComplete
+	if update.Stage == bdinfo.ScanProgressStageStream && !force && !p.lastStreamEmit.IsZero() && now.Sub(p.lastStreamEmit) < 250*time.Millisecond {
 		return
 	}
 
@@ -609,7 +609,7 @@ func (p *scanProgressPrinter) Update(update bdrom.ScanProgress) {
 	}
 	fmt.Fprintf(p.out, "\r%s%s", line, padding)
 	p.lastLineLen = len(line)
-	if update.Stage == bdrom.ScanStageStream {
+	if update.Stage == bdinfo.ScanProgressStageStream {
 		if !p.lastStreamAt.IsZero() {
 			deltaT := now.Sub(p.lastStreamAt).Seconds()
 			if deltaT > 0 {
@@ -630,15 +630,15 @@ func (p *scanProgressPrinter) Update(update bdrom.ScanProgress) {
 	}
 }
 
-func (p *scanProgressPrinter) buildLine(update bdrom.ScanProgress, now time.Time) string {
+func (p *scanProgressPrinter) buildLine(update bdinfo.ScanProgress, now time.Time) string {
 	switch update.Stage {
-	case bdrom.ScanStageClipInfo:
+	case bdinfo.ScanProgressStageClipInfo:
 		return fmt.Sprintf("Clip info: %s (%d/%d)", formatPercent(update.Completed, update.Total), update.Completed, update.Total)
-	case bdrom.ScanStagePlaylist:
+	case bdinfo.ScanProgressStagePlaylist:
 		return fmt.Sprintf("Playlists: %s (%d/%d)", formatPercent(update.Completed, update.Total), update.Completed, update.Total)
-	case bdrom.ScanStageInitialize:
+	case bdinfo.ScanProgressStageInitialize:
 		return fmt.Sprintf("Initialize: %s (%d/%d)", formatPercent(update.Completed, update.Total), update.Completed, update.Total)
-	case bdrom.ScanStageStream:
+	case bdinfo.ScanProgressStageStream:
 		eta := "--:--"
 		readSpeed := "--"
 		if p.streamRateBps > 0 {
@@ -664,7 +664,7 @@ func (p *scanProgressPrinter) buildLine(update bdrom.ScanProgress, now time.Time
 			readSpeed,
 			eta,
 		)
-	case bdrom.ScanStageComplete:
+	case bdinfo.ScanProgressStageComplete:
 		return "Scan stages complete: 100%"
 	default:
 		return ""

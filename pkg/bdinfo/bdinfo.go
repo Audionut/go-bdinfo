@@ -36,6 +36,26 @@ type ProgressEvent struct {
 	OccurredAt time.Time
 }
 
+// ScanProgressStage represents fine-grained scan phases emitted during stream/playlist processing.
+type ScanProgressStage string
+
+const (
+	ScanProgressStageClipInfo   ScanProgressStage = "clipinfo"
+	ScanProgressStagePlaylist   ScanProgressStage = "playlist"
+	ScanProgressStageStream     ScanProgressStage = "stream"
+	ScanProgressStageInitialize ScanProgressStage = "initialize"
+	ScanProgressStageComplete   ScanProgressStage = "complete"
+)
+
+// ScanProgress is emitted for low-level scan advancement when Options.OnScanProgress is set.
+type ScanProgress struct {
+	Stage          ScanProgressStage
+	Completed      int
+	Total          int
+	ProcessedBytes uint64
+	TotalBytes     uint64
+}
+
 // Settings are library-facing scan and report controls.
 type Settings struct {
 	GenerateStreamDiagnostics bool
@@ -67,7 +87,7 @@ type Options struct {
 	Path           string
 	ReportPath     string
 	Settings       Settings
-	OnScanProgress func(bdrom.ScanProgress)
+	OnScanProgress func(ScanProgress)
 	OnProgress     func(ProgressEvent)
 }
 
@@ -162,7 +182,9 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	})
 	var scan bdrom.ScanResult
 	if options.OnScanProgress != nil {
-		scan = rom.ScanWithProgress(options.OnScanProgress)
+		scan = rom.ScanWithProgress(func(update bdrom.ScanProgress) {
+			options.OnScanProgress(fromInternalScanProgress(update))
+		})
 	} else {
 		scan = rom.Scan()
 	}
@@ -344,5 +366,32 @@ func toInternalSettings(s Settings) internalsettings.Settings {
 		PlaylistOnly:              s.PlaylistOnly,
 		MainPlaylistOnly:          s.MainPlaylistOnly,
 		SummaryOnly:               s.SummaryOnly,
+	}
+}
+
+func fromInternalScanProgress(update bdrom.ScanProgress) ScanProgress {
+	return ScanProgress{
+		Stage:          fromInternalScanProgressStage(update.Stage),
+		Completed:      update.Completed,
+		Total:          update.Total,
+		ProcessedBytes: update.ProcessedBytes,
+		TotalBytes:     update.TotalBytes,
+	}
+}
+
+func fromInternalScanProgressStage(stage bdrom.ScanProgressStage) ScanProgressStage {
+	switch stage {
+	case bdrom.ScanStageClipInfo:
+		return ScanProgressStageClipInfo
+	case bdrom.ScanStagePlaylist:
+		return ScanProgressStagePlaylist
+	case bdrom.ScanStageStream:
+		return ScanProgressStageStream
+	case bdrom.ScanStageInitialize:
+		return ScanProgressStageInitialize
+	case bdrom.ScanStageComplete:
+		return ScanProgressStageComplete
+	default:
+		return ScanProgressStage(stage)
 	}
 }
