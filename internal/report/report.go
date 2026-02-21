@@ -715,7 +715,7 @@ func buildSummaryOnly(bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, settings
 		}
 
 		if settings.GenerateTextSummary {
-			out.WriteString("QUICK SUMMARY:\n\n\n")
+			out.WriteString("QUICK SUMMARY:\n")
 			if bd.DiscTitle != "" {
 				fmt.Fprintf(&out, "Disc Title: %s\n", bd.DiscTitle)
 			}
@@ -729,7 +729,6 @@ func buildSummaryOnly(bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, settings
 			if summary.Len() > 0 {
 				out.WriteString(summary.String())
 			}
-			out.WriteString("\n\n\n\n\n")
 		}
 	}
 	return out.String()
