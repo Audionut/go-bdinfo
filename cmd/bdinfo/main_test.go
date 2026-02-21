@@ -20,3 +20,10 @@ func TestNormalizeArgs_BoolValueTokens(t *testing.T) {
 		}
 	}
 }
+
+func TestPlaylistFlagRegistered(t *testing.T) {
+	flag := rootCmd.Flags().Lookup("playlist")
+	if flag == nil {
+		t.Fatalf("expected --playlist flag to be registered")
+	}
+}

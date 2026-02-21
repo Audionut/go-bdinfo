@@ -22,6 +22,7 @@ var version = "dev"
 type rootOptions struct {
 	path             string
 	pathFlag         string
+	playlist         string
 	reportPath       string
 	reportFile       string
 	filterShortValue int
@@ -105,6 +106,7 @@ func init() {
 
 	// Official BDInfo compatibility: path as required flag. Positional arg still supported.
 	rootCmd.Flags().StringVarP(&opts.pathFlag, "path", "p", "", "Required. The path to iso or bluray folder")
+	rootCmd.Flags().StringVar(&opts.playlist, "playlist", "", "Process only the selected playlist (e.g. 00000.mpls)")
 	rootCmd.Flags().StringVarP(&opts.reportPath, "reportpath", "r", "", "The folder where report will be saved (compat)")
 	rootCmd.Flags().StringVarP(&opts.reportFile, "reportfilename", "o", "", "The report filename with extension (use - for stdout)")
 	rootCmd.Flags().BoolVar(&opts.stdout, "stdout", false, "Write report to stdout")
@@ -261,11 +263,18 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	if flags.Changed("forumsonly") {
 		s.ForumsOnly = opts.forumsOnly
 	}
+	if flags.Changed("playlist") {
+		s.PlaylistOnly = opts.playlist
+	}
 	if flags.Changed("main") {
 		s.MainPlaylistOnly = opts.mainOnly
 	}
 	if flags.Changed("printonlybigplaylist") {
 		s.BigPlaylistOnly = opts.bigPlaylistOnly
+	}
+	if s.PlaylistOnly != "" {
+		s.MainPlaylistOnly = false
+		s.BigPlaylistOnly = false
 	}
 	if flags.Changed("summaryonly") {
 		s.SummaryOnly = opts.summaryOnly
@@ -442,6 +451,7 @@ func scanAndReport(path string, settings settings.Settings, progress bool) (stri
 		IncludeVersionAndNotes:    settings.IncludeVersionAndNotes,
 		GroupByTime:               settings.GroupByTime,
 		ForumsOnly:                settings.ForumsOnly,
+		PlaylistOnly:              settings.PlaylistOnly,
 		MainPlaylistOnly:          settings.MainPlaylistOnly,
 		SummaryOnly:               settings.SummaryOnly,
 	}

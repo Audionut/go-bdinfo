@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -48,6 +49,10 @@ func Analyze(ctx context.Context, path string, opts *Options) (*Analysis, error)
 		return nil, err
 	}
 	defer rom.Close()
+
+	if err := filterROMToPlaylist(rom, scanSettings.PlaylistOnly); err != nil {
+		return nil, err
+	}
 
 	scanResult := rom.Scan()
 	if err := ctx.Err(); err != nil {
@@ -236,4 +241,36 @@ func streamKind(base *stream.Stream) string {
 	default:
 		return "unknown"
 	}
+}
+
+func normalizePlaylistName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return ""
+	}
+	base := filepath.Base(trimmed)
+	normalized := strings.ToUpper(base)
+	if filepath.Ext(normalized) == "" {
+		normalized += ".MPLS"
+	}
+	return normalized
+}
+
+func filterROMToPlaylist(rom *bdrom.BDROM, playlistName string) error {
+	if rom == nil {
+		return errors.New("rom is nil")
+	}
+	normalized := normalizePlaylistName(playlistName)
+	if normalized == "" {
+		return nil
+	}
+
+	pl, ok := rom.PlaylistFiles[normalized]
+	if !ok {
+		return fmt.Errorf("playlist not found: %s", normalized)
+	}
+
+	rom.PlaylistFiles = map[string]*bdrom.PlaylistFile{normalized: pl}
+	rom.PlaylistOrder = []string{normalized}
+	return nil
 }

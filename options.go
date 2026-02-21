@@ -22,6 +22,7 @@ type Options struct {
 	IncludeVersionAndNotes    bool
 	GroupByTime               bool
 	ForumsOnly                bool
+	PlaylistOnly              string
 	MainPlaylistOnly          bool
 	SummaryOnly               bool
 }
@@ -50,6 +51,7 @@ func optionsFromSettings(s settings.Settings) Options {
 		IncludeVersionAndNotes:    s.IncludeVersionAndNotes,
 		GroupByTime:               s.GroupByTime,
 		ForumsOnly:                s.ForumsOnly,
+		PlaylistOnly:              s.PlaylistOnly,
 		MainPlaylistOnly:          s.MainPlaylistOnly,
 		SummaryOnly:               s.SummaryOnly,
 	}
@@ -80,6 +82,7 @@ func (o Options) toSettings(reportBaseDir string) settings.Settings {
 		IncludeVersionAndNotes:    o.IncludeVersionAndNotes,
 		GroupByTime:               o.GroupByTime,
 		ForumsOnly:                o.ForumsOnly,
+		PlaylistOnly:              normalizePlaylistName(o.PlaylistOnly),
 		MainPlaylistOnly:          o.MainPlaylistOnly,
 		SummaryOnly:               o.SummaryOnly,
 	}

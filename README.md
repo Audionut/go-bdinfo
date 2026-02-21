@@ -68,6 +68,7 @@ import (
 
 func main() {
   opts := bdinfo.DefaultOptions()
+  opts.PlaylistOnly = "00000.mpls"
   analysis, reportText, err := bdinfo.AnalyzeAndRender(context.Background(), "/path/to/disc-or.iso", &opts)
   if err != nil {
     panic(err)
@@ -84,6 +85,7 @@ func main() {
 - `--stdout` (write report to stdout)
 - `--main` (only main playlist; likely what you want)
 - `-f, --forumsonly` (only forums paste block)
+- `--playlist` (process only the selected playlist, e.g. `00000.mpls`)
 - `-s, --summaryonly` (only quick summary block; likely what you want)
 - `-b, --enablessif` (default on; use `--enablessif=false` to disable)
 - `-l, --filterloopingplaylists`
