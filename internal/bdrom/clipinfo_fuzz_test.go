@@ -45,8 +45,9 @@ func FuzzStreamClipFileScan(f *testing.F) {
 	f.Add([]byte("HDMV0100")) // short but non-empty
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		// Keep fuzzing bounded (avoid huge allocations from mutated corpora).
-		if len(data) > 2<<20 {
+		// CLPI metadata is small; cap fuzz payloads to avoid long-running
+		// pathological cases that can timeout CI fuzz windows.
+		if len(data) > 256<<10 {
 			return
 		}
 		fi := &memFileInfoFuzz{name: "FUZZ.CLPI", data: data}
