@@ -7,6 +7,7 @@ import (
 
 var ac3BitrateKbps = []int{32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640}
 var ac3Channels = []int{2, 1, 2, 3, 3, 4, 4, 5}
+var ac3FrameSize44K = []int{138, 174, 208, 242, 278, 348, 416, 486, 556, 696, 834, 974, 1114, 1392, 1670, 1950, 2228, 2506, 2786}
 
 func ac3ChanMap(chanMap uint16) int {
 	channels := 0
@@ -21,15 +22,49 @@ func ac3ChanMap(chanMap uint16) int {
 	return channels
 }
 
+// ScanAC3 updates audio metadata from the first usable AC-3 or E-AC-3 frames in data.
+//
+// For E-AC-3, the stream can require both an independent core frame and a later
+// dependent frame to expose Atmos/JOC metadata, expanded channel count, and embedded
+// AC3 core details. The scan stops once the stream reaches initialized state.
 func ScanAC3(a *stream.AudioStream, data []byte) {
 	if a.IsInitialized {
 		return
 	}
+	for offset := findAC3Sync(data); offset >= 0 && offset+7 <= len(data); {
+		frameSize, ok := scanAC3Frame(a, data[offset:])
+		if ok && a.IsInitialized {
+			return
+		}
+
+		next := offset + 2
+		if ok && frameSize > 0 {
+			next = offset + frameSize
+		}
+		if next <= offset || next >= len(data) {
+			return
+		}
+		rel := findAC3Sync(data[next:])
+		if rel < 0 {
+			return
+		}
+		offset = next + rel
+	}
+}
+
+// scanAC3Frame parses one sync-aligned AC-3 or E-AC-3 frame and returns its byte size.
+// It mutates a with any metadata found in the frame; ok is false when the frame header
+// is absent or unsupported.
+func scanAC3Frame(a *stream.AudioStream, data []byte) (int, bool) {
 	if len(data) < 7 {
-		return
+		return 0, false
 	}
 	if data[0] != 0x0b || data[1] != 0x77 {
-		return
+		return 0, false
+	}
+	frameSizeBytes, ok := ac3FrameSize(data)
+	if !ok {
+		return 0, false
 	}
 
 	secondFrame := a.ChannelCount > 0
@@ -253,6 +288,42 @@ func ScanAC3(a *stream.AudioStream, data []byte) {
 	} else {
 		a.IsInitialized = true
 	}
+	return frameSizeBytes, true
+}
+
+// ac3FrameSize returns the byte length of a sync-aligned AC-3 or E-AC-3 frame.
+func ac3FrameSize(data []byte) (int, bool) {
+	if len(data) < 6 || data[0] != 0x0b || data[1] != 0x77 {
+		return 0, false
+	}
+	bsid := (data[5] & 0xF8) >> 3
+	if bsid <= 10 {
+		srCode := (data[4] & 0xC0) >> 6
+		frameSizeCode := data[4] & 0x3F
+		if srCode == 3 || int(frameSizeCode) >= len(ac3FrameSize44K)*2 {
+			return 0, false
+		}
+		bitrateIndex := int(frameSizeCode >> 1)
+		switch srCode {
+		case 0:
+			return ac3BitrateKbps[bitrateIndex] * 4, true
+		case 1:
+			size := ac3FrameSize44K[bitrateIndex]
+			if frameSizeCode&1 != 0 {
+				size += 2
+			}
+			return size, true
+		case 2:
+			return ac3BitrateKbps[bitrateIndex] * 6, true
+		default:
+			return 0, false
+		}
+	}
+	if bsid > 16 {
+		return 0, false
+	}
+	frameSize := ((int(data[2]&0x07) << 8) | int(data[3])) + 1
+	return frameSize << 1, true
 }
 
 func findEmdfSync(data []byte, startBit int) (int, bool) {
