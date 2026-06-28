@@ -139,8 +139,8 @@ func ScanAC3(a *stream.AudioStream, data []byte) {
 }
 
 // scanAC3Frame parses one sync-aligned AC-3 or E-AC-3 frame and returns its byte size.
-// It mutates a with any metadata found in the frame; ok is false when the frame header
-// is absent or unsupported.
+// It mutates a only with metadata found inside that frame; ok is false when the
+// frame header is absent, unsupported, or truncated.
 func scanAC3Frame(a *stream.AudioStream, data []byte) (int, bool) {
 	if len(data) < 7 {
 		return 0, false
@@ -152,11 +152,15 @@ func scanAC3Frame(a *stream.AudioStream, data []byte) (int, bool) {
 	if !ok {
 		return 0, false
 	}
+	if len(data) < frameSizeBytes {
+		return 0, false
+	}
+	frameData := data[:frameSizeBytes]
 
 	secondFrame := a.ChannelCount > 0
-	bsidPeek := (data[5] & 0xF8) >> 3
+	bsidPeek := (frameData[5] & 0xF8) >> 3
 
-	br := buffer.NewBitReader(data)
+	br := buffer.NewBitReader(frameData)
 	read := func(bits int) uint64 {
 		v, _ := br.ReadBits(bits)
 		return v
@@ -274,7 +278,7 @@ func scanAC3Frame(a *stream.AudioStream, data []byte) (int, bool) {
 			}
 		}
 
-		if emdfBitPos, ok := findEmdfSync(data, br.BitPosition()); ok {
+		if emdfBitPos, ok := findEmdfSync(frameData, br.BitPosition()); ok {
 			br.SetBitPosition(emdfBitPos + 16)
 			emdfContainerSize := read(16)
 			remainAfterEmdf := br.BitsRemaining() - int(emdfContainerSize)*8

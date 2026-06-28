@@ -84,6 +84,24 @@ func testAC3PlusDependentJOCFrame() []byte {
 	return w.pad(2304)
 }
 
+func testAC3PlusDependentFrameNoJOC() []byte {
+	var w testBitWriter
+	w.write(0x0b77, 16)
+	w.write(1, 2)       // dependent stream
+	w.write(0, 3)       // substreamid
+	w.write(1151, 11)   // 2304 bytes
+	w.write(0, 2)       // 48 kHz
+	w.write(3, 2)       // six blocks in this parser's BDInfo-compatible mapping
+	w.write(7, 3)       // 3/2
+	w.write(1, 1)       // lfeon
+	w.write(16, 5)      // bsid
+	w.write(25, 5)      // dialnorm
+	w.write(0, 1)       // compre
+	w.write(1, 1)       // chanmape
+	w.write(0x0010, 16) // Tfl/Tfr
+	return w.pad(2304)
+}
+
 func writeTestEmdfPayloadConfig(w *testBitWriter) {
 	w.write(0, 1) // sample_offsete
 	w.write(0, 1) // duratione
@@ -124,5 +142,33 @@ func TestScanAC3_AC3PlusAtmosDependentFrame(t *testing.T) {
 	desc := a.Description()
 	if !strings.Contains(desc, "AC3 Embedded: 5.1 / 48 kHz /   576 kbps / DN -25dB") {
 		t.Fatalf("description missing embedded core: %q", desc)
+	}
+}
+
+func TestScanAC3_FrameBoundaryPreventsTrailingJOCDetection(t *testing.T) {
+	a := &stream.AudioStream{Stream: stream.Stream{StreamType: stream.StreamTypeAC3PlusAudio}}
+	ScanAC3(a, testAC3PlusCoreFrame())
+
+	trailingJOC := testAC3PlusDependentJOCFrame()
+	data := append(testAC3PlusDependentFrameNoJOC(), trailingJOC...)
+	frameSize, ok := scanAC3Frame(a, data)
+
+	if !ok {
+		t.Fatal("expected dependent frame to parse")
+	}
+	if frameSize != 2304 {
+		t.Fatalf("frame size got %d want 2304", frameSize)
+	}
+	if a.HasExtensions {
+		t.Fatal("unexpected Atmos extension from trailing frame bytes")
+	}
+}
+
+func TestScanAC3_RejectsTruncatedFrame(t *testing.T) {
+	a := &stream.AudioStream{Stream: stream.Stream{StreamType: stream.StreamTypeAC3PlusAudio}}
+	data := testAC3PlusCoreFrame()[:128]
+
+	if frameSize, ok := scanAC3Frame(a, data); ok || frameSize != 0 {
+		t.Fatalf("scanAC3Frame truncated frame got size=%d ok=%v", frameSize, ok)
 	}
 }
