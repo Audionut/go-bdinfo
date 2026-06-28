@@ -576,6 +576,9 @@ func (p *PlaylistFile) loadStreamClips() {
 						ex.AudioMode = cs.AudioMode
 						ex.CoreStream = cs.CoreStream
 						ex.ExtendedData = cs.ExtendedData
+						if cs.ChannelLayoutText != "" {
+							ex.ChannelLayoutText = cs.ChannelLayoutText
+						}
 					}
 				case *stream.GraphicsStream:
 					if cs, ok := clipStream.(*stream.GraphicsStream); ok {

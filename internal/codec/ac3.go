@@ -1,6 +1,8 @@
 package codec
 
 import (
+	"strings"
+
 	"github.com/autobrr/go-bdinfo/internal/buffer"
 	"github.com/autobrr/go-bdinfo/internal/stream"
 )
@@ -8,6 +10,38 @@ import (
 var ac3BitrateKbps = []int{32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640}
 var ac3Channels = []int{2, 1, 2, 3, 3, 4, 4, 5}
 var ac3FrameSize44K = []int{138, 174, 208, 242, 278, 348, 416, 486, 556, 696, 834, 974, 1114, 1392, 1670, 1950, 2228, 2506, 2786}
+var ac3ChannelLayouts = []string{
+	"L R",
+	"C",
+	"L R",
+	"L R C",
+	"L R S",
+	"L R C S",
+	"L R Ls Rs",
+	"L R C Ls Rs",
+}
+var eac3CustomChannelMapLayouts = [][]string{
+	{"L"},
+	{"C"},
+	{"R"},
+	{"Ls"},
+	{"Rs"},
+	{"Lc", "Rc"},
+	{"Lb", "Rb"},
+	{"Cb"},
+	{"Tc"},
+	{"Lsd", "Rsd"},
+	{"Lw", "Rw"},
+	{"Tfl", "Tfr"},
+	{"Tfc"},
+	{"Tbl", "Tbr"},
+	{"LFE2"},
+	{"LFE"},
+}
+var channelLayoutOrder = []string{
+	"L", "R", "C", "LFE", "Ls", "Rs", "Lb", "Rb", "Lc", "Rc", "Lw", "Rw",
+	"S", "Cb", "Tc", "Lsd", "Rsd", "Tfl", "Tfr", "Tfc", "Tbl", "Tbr", "LFE2",
+}
 
 func ac3ChanMap(chanMap uint16) int {
 	channels := 0
@@ -20,6 +54,58 @@ func ac3ChanMap(chanMap uint16) int {
 		}
 	}
 	return channels
+}
+
+func ac3ChannelLayout(channelMode uint64, lfeOn uint64) string {
+	if channelMode >= uint64(len(ac3ChannelLayouts)) {
+		return ""
+	}
+	layout := ac3ChannelLayouts[channelMode]
+	if lfeOn > 0 {
+		layout = mergeAudioChannelLayouts(layout, "LFE")
+	}
+	return layout
+}
+
+// eac3ChannelMapLayout converts an E-AC-3 custom channel map into ordered Dolby speaker labels.
+func eac3ChannelMapLayout(mask uint16) string {
+	seen := map[string]bool{}
+	for i, layout := range eac3CustomChannelMapLayouts {
+		if mask&(1<<uint(15-i)) == 0 {
+			continue
+		}
+		for _, ch := range layout {
+			seen[ch] = true
+		}
+	}
+	return orderedChannelLayout(seen)
+}
+
+func mergeAudioChannelLayouts(layouts ...string) string {
+	seen := map[string]bool{}
+	for _, layout := range layouts {
+		for _, ch := range strings.Fields(layout) {
+			seen[ch] = true
+		}
+	}
+	return orderedChannelLayout(seen)
+}
+
+func orderedChannelLayout(seen map[string]bool) string {
+	if len(seen) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(seen))
+	for _, ch := range channelLayoutOrder {
+		if seen[ch] {
+			parts = append(parts, ch)
+			delete(seen, ch)
+		}
+	}
+	for ch := range seen {
+		parts = append(parts, ch)
+	}
+	return strings.Join(parts, " ")
 }
 
 // ScanAC3 updates audio metadata from the first usable AC-3 or E-AC-3 frames in data.
@@ -181,6 +267,9 @@ func scanAC3Frame(a *stream.AudioStream, data []byte) (int, bool) {
 				chanmap := read(16)
 				a.ChannelCount = a.CoreStream.ChannelCount
 				a.ChannelCount += ac3ChanMap(uint16(chanmap))
+				if layout := eac3ChannelMapLayout(uint16(chanmap)); layout != "" {
+					a.ChannelLayoutText = mergeAudioChannelLayouts(a.CoreStream.ChannelLayoutText, layout)
+				}
 				lfeOn = uint64(a.CoreStream.LFE)
 			}
 		}
@@ -271,6 +360,9 @@ func scanAC3Frame(a *stream.AudioStream, data []byte) (int, bool) {
 	}
 
 	a.LFE = int(lfeOn)
+	if a.ChannelLayoutText == "" {
+		a.ChannelLayoutText = ac3ChannelLayout(channelMode, lfeOn)
+	}
 	if a.StreamType != stream.StreamTypeAC3PlusSecondaryAudio {
 		switch {
 		case a.StreamType == stream.StreamTypeAC3PlusAudio && bsid == 6:

@@ -56,18 +56,18 @@ func testAC3PlusCoreFrame() []byte {
 func testAC3PlusDependentJOCFrame() []byte {
 	var w testBitWriter
 	w.write(0x0b77, 16)
-	w.write(1, 2)     // dependent stream
-	w.write(0, 3)     // substreamid
-	w.write(1151, 11) // 2304 bytes
-	w.write(0, 2)     // 48 kHz
-	w.write(3, 2)     // six blocks in this parser's BDInfo-compatible mapping
-	w.write(7, 3)     // 3/2
-	w.write(1, 1)     // lfeon
-	w.write(16, 5)    // bsid
-	w.write(25, 5)    // dialnorm
-	w.write(0, 1)     // compre
-	w.write(1, 1)     // chanmape
-	w.write(0x0400, 16)
+	w.write(1, 2)       // dependent stream
+	w.write(0, 3)       // substreamid
+	w.write(1151, 11)   // 2304 bytes
+	w.write(0, 2)       // 48 kHz
+	w.write(3, 2)       // six blocks in this parser's BDInfo-compatible mapping
+	w.write(7, 3)       // 3/2
+	w.write(1, 1)       // lfeon
+	w.write(16, 5)      // bsid
+	w.write(25, 5)      // dialnorm
+	w.write(0, 1)       // compre
+	w.write(1, 1)       // chanmape
+	w.write(0x0010, 16) // Tfl/Tfr
 
 	w.write(0x5838, 16) // emdf sync
 	w.write(8, 16)      // emdf_container_size
@@ -106,8 +106,11 @@ func TestScanAC3_AC3PlusAtmosDependentFrame(t *testing.T) {
 	if !a.HasExtensions {
 		t.Fatal("expected Atmos extension")
 	}
-	if a.ChannelDescription() != "7.1" {
-		t.Fatalf("channel description got %q want 7.1", a.ChannelDescription())
+	if a.ChannelLayoutText != "L R C LFE Ls Rs Tfl Tfr" {
+		t.Fatalf("channel layout got %q want Tfl/Tfr height layout", a.ChannelLayoutText)
+	}
+	if a.ChannelDescription() != "5.1.2" {
+		t.Fatalf("channel description got %q want 5.1.2", a.ChannelDescription())
 	}
 	if a.BitRate != 1152000 {
 		t.Fatalf("bitrate got %d want 1152000", a.BitRate)
