@@ -332,7 +332,7 @@ func dtsHDSpeakerActivityMaskChannelLayout(mask uint16) string {
 		out += " Chr"
 	}
 	if mask&0x8000 != 0 {
-		out += " Lhr"
+		out += " Lhr Rhr"
 	}
 	if out == "" {
 		return ""
