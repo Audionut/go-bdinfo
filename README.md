@@ -94,6 +94,61 @@ Notes:
 - `Result.QuickSummary` and `Result.ForumsBlock` hold the `--summaryonly` and `--forumsonly` text from the same scan. They are always filled and do not depend on `SummaryOnly` or `ForumsOnly`.
 - File writing is caller-owned.
 
+### Optional video collection and exact timelines
+
+Set `Options.IncludeTimeline` to obtain `Result.Timelines` with original unsigned
+MPLS IN/OUT boundaries, integer playlist offsets in **45 kHz ticks**, repeated
+occurrences, alternate angles, per-item video mappings, connection conditions,
+and CLPI clock sequences. The selected angle is currently zero. Timelines follow
+the playlists contributing to the selected report; summary and full-report
+selection can differ. `DiscoverPlaylists` returns metadata-only timelines and
+never invokes a video collector.
+
+Set `Options.VideoConsumer` to a `video.Factory` from
+`github.com/autobrr/go-bdinfo/pkg/bdinfo/video` to collect complete video elementary
+streams during the existing scan. This also enables timeline capture. Return
+`(nil, nil)` to decline a source/PID. Inspect the per-occurrence mappings to select
+primary HEVC; PID order and bitrate do not establish a primary stream. A physical
+source/PID is collected once, even when several playlists or occurrences use it.
+
+Each accepted consumer receives ordered synchronous `Consume` and
+`Discontinuity` calls and exactly one `Finish`. Different physical sources may
+run concurrently, so each consumer needs independent parser state and shared
+result maps need synchronization. Data and PES-boundary slices are borrowed until
+`Consume` returns. Callbacks provide backpressure and should observe cancellation;
+BDInfo cannot interrupt arbitrary blocked caller code. `Finish` has no context
+and must release resources promptly even after cancellation.
+
+Batches contain ES payload beyond the report's 5 MiB probe, excluding TS/PES
+headers and bounded-PES padding. Their boundaries retain absolute ES offsets,
+physical source packet positions, and original **90 kHz PTS/DTS modulo 2^33**.
+Zero is a valid timestamp. Batches and PES starts are not frame boundaries.
+Discontinuities establish new segments; damaged input remains incomplete even
+after resynchronization. Only `End.CleanEOF` permits normal decoder finalization.
+
+Check every required `Result.Collection` outcome and `PlaylistTimeline.Complete`
+before projecting metadata. Optional collector errors preserve valid reports and
+remain available as wrapped errors in collection results. Timeline completeness
+describes metadata/clock associations, not extracted HDR10+ frames. Missing or
+contradictory STC information and unverified SSIF-to-M2TS packet mappings remain
+explicitly unsupported. STC packet ranges must fit the logical M2TS file extent.
+Metadata-only discovery assumes 192-byte M2TS framing; a scan that detects bare
+188-byte TS invalidates that clock association while still collecting raw ES.
+CLPI program association currently requires one complete
+program sequence starting at packet zero; later or multiple programs require
+packet-aware mapping. Duplicate PID declarations and ambiguous transport program
+tables cannot establish complete associations or collection. The source path identifies the actual disc-relative
+container; persistent caches need a caller-owned source fingerprint and parser
+version as well.
+
+The compiling [`ExampleOptions_VideoConsumer`](pkg/bdinfo/example_collection_test.go)
+shows a constant-memory primary-HEVC byte counter and exact occurrence intervals.
+BDInfo supplies transport and timeline facts; the caller's reusable HEVC/HDR10+
+decoder owns typed frames, metadata inheritance, presentation ordering, and
+playlist projection. Full HDR10+ decoder integration is pending that separate
+implementation. Nil collection and disabled timeline capture retain the normal
+scan without collection buffers, detailed timeline allocations, or new workers.
+
 ## Options
 
 - `-o, --reportfilename` (use `-` for stdout)

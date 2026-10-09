@@ -25,6 +25,9 @@ const productVersion = "0.8.0.0"
 // Output holds the text the CLI writes (Report) plus the --summaryonly and
 // --forumsonly blocks. See pkg/bdinfo.Result for the field contract.
 type Output struct {
+	// Playlists records actual contributing identities only when timeline capture
+	// is enabled. Report selection can differ from QuickSummary selection.
+	Playlists    []*bdrom.PlaylistFile
 	Report       string
 	QuickSummary string
 	ForumsBlock  string
@@ -75,7 +78,8 @@ func RenderReport(path string, bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile,
 
 	// Build the quick summary before the full report narrows playlists:
 	// --summaryonly ignores BigPlaylistOnly, and the CLI output must not change.
-	quickSummary := buildSummaryOnly(bd, playlists, settings)
+	quickSummary, summaryPlaylists := buildSummaryOnlyWithSelection(bd, playlists, settings)
+	var renderedPlaylists []*bdrom.PlaylistFile
 
 	var b strings.Builder
 	protection := "AACS"
@@ -141,18 +145,15 @@ func RenderReport(path string, bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile,
 		}
 	}
 
-	if settings.MainPlaylistOnly || settings.BigPlaylistOnly {
-		playlists = selectMainPlaylist(playlists, settings)
-	}
-
-	sort.SliceStable(playlists, func(i, j int) bool {
-		return playlists[i].FileSize() > playlists[j].FileSize()
-	})
+	playlists = selectReportPlaylists(playlists, settings, false)
 
 	separator := strings.Repeat("#", 10)
 	for _, playlist := range playlists {
 		if settings.FilterLoopingPlaylists && !playlist.IsValid() {
 			continue
+		}
+		if bd.CaptureTimeline {
+			renderedPlaylists = append(renderedPlaylists, playlist)
 		}
 		var summary strings.Builder
 
@@ -530,12 +531,14 @@ func RenderReport(path string, bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile,
 	}
 
 	out := Output{
+		Playlists:    renderedPlaylists,
 		Report:       b.String(),
 		QuickSummary: quickSummary,
 	}
 	out.ForumsBlock = extractForumsBlocks(out.Report)
 	if settings.SummaryOnly {
 		out.Report = out.QuickSummary
+		out.Playlists = summaryPlaylists
 	} else if settings.ForumsOnly {
 		out.Report = out.ForumsBlock
 	}
@@ -621,6 +624,33 @@ func selectMainPlaylist(playlists []*bdrom.PlaylistFile, settings settings.Setti
 	return []*bdrom.PlaylistFile{main}
 }
 
+func selectReportPlaylists(playlists []*bdrom.PlaylistFile, cfg settings.Settings, summary bool) []*bdrom.PlaylistFile {
+	if cfg.MainPlaylistOnly || cfg.BigPlaylistOnly && !summary {
+		playlists = selectMainPlaylist(playlists, cfg)
+	} else if summary {
+		playlists = slices.Clone(playlists)
+	}
+	sort.SliceStable(playlists, func(i, j int) bool { return playlists[i].FileSize() > playlists[j].FileSize() })
+	return playlists
+}
+
+// SelectPlaylists applies the same selection as the corresponding rendered output
+// for metadata-only discovery. It sorts a copy and does not mutate its input.
+func SelectPlaylists(playlists []*bdrom.PlaylistFile, cfg settings.Settings) []*bdrom.PlaylistFile {
+	if cfg.SummaryOnly && !cfg.GenerateTextSummary {
+		return nil
+	}
+	selected := selectReportPlaylists(slices.Clone(playlists), cfg, cfg.SummaryOnly)
+	out := selected[:0]
+	for _, p := range selected {
+		if cfg.FilterLoopingPlaylists && !p.IsValid() {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
 func extractForumsBlocks(report string) string {
 	const startMarker = "<--- BEGIN FORUMS PASTE --->"
 	const endMarker = "<---- END FORUMS PASTE ---->"
@@ -651,16 +681,13 @@ func extractForumsBlocks(report string) string {
 }
 
 func buildSummaryOnly(bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, settings settings.Settings) string {
-	if settings.MainPlaylistOnly {
-		playlists = selectMainPlaylist(playlists, settings)
-	} else {
-		// Sort a copy: the caller's order feeds the full report and Result.Playlists.
-		playlists = slices.Clone(playlists)
-	}
+	text, _ := buildSummaryOnlyWithSelection(bd, playlists, settings)
+	return text
+}
 
-	sort.SliceStable(playlists, func(i, j int) bool {
-		return playlists[i].FileSize() > playlists[j].FileSize()
-	})
+func buildSummaryOnlyWithSelection(bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, settings settings.Settings) (string, []*bdrom.PlaylistFile) {
+	playlists = selectReportPlaylists(playlists, settings, true)
+	var selected []*bdrom.PlaylistFile
 
 	protection := "AACS"
 	if bd.IsBDPlus {
@@ -728,6 +755,9 @@ func buildSummaryOnly(bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, settings
 
 		if settings.GenerateTextSummary {
 			out.WriteString("QUICK SUMMARY:\n\n")
+			if bd.CaptureTimeline {
+				selected = append(selected, playlist)
+			}
 			if bd.DiscTitle != "" {
 				fmt.Fprintf(&out, "Disc Title: %s\n", bd.DiscTitle)
 			}
@@ -743,7 +773,7 @@ func buildSummaryOnly(bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, settings
 			}
 		}
 	}
-	return out.String()
+	return out.String(), selected
 }
 
 func formatMbps(bitrate uint64) string {

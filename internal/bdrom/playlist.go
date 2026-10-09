@@ -18,15 +18,19 @@ import (
 )
 
 type PlaylistFile struct {
-	FileInfo        fs.FileInfo
-	Name            string
-	FileType        string
-	IsInitialized   bool
-	Settings        settings.Settings
-	HasHiddenTracks bool
-	HasLoops        bool
-	IsCustom        bool
-	MVCBaseViewR    bool
+	CaptureTimeline    bool
+	TimelineItems      []TimelineItem
+	TimelineDuration45 uint64
+	TimelineErr        error
+	FileInfo           fs.FileInfo
+	Name               string
+	FileType           string
+	IsInitialized      bool
+	Settings           settings.Settings
+	HasHiddenTracks    bool
+	HasLoops           bool
+	IsCustom           bool
+	MVCBaseViewR       bool
 
 	Chapters []float64
 
@@ -226,6 +230,11 @@ func (p *PlaylistFile) Scan(streamFiles map[string]*StreamFile, clipFiles map[st
 	if p.FileType != "MPLS0100" && p.FileType != "MPLS0200" && p.FileType != "MPLS0300" {
 		return fmt.Errorf("playlist %s has unknown file type %s", p.Name, p.FileType)
 	}
+	if p.CaptureTimeline {
+		p.TimelineItems, p.TimelineDuration45, p.TimelineErr = parsePlaylistTimeline(data, streamFiles, clipFiles, p.Settings.EnableSSIF)
+		// Exact facts may be unsupported even when the report's legacy interpretation
+		// is usable. Keep that error separate from report parsing and scan scheduling.
+	}
 	playlistOffset := int(util.ReadUint32(data, &pos))
 	chaptersOffset := int(util.ReadUint32(data, &pos))
 	_ = util.ReadUint32(data, &pos) // extensions offset
@@ -237,6 +246,9 @@ func (p *PlaylistFile) Scan(streamFiles map[string]*StreamFile, clipFiles map[st
 	}
 
 	pos = playlistOffset
+	if pos < 0 || pos > len(data)-10 {
+		return fmt.Errorf("playlist %s truncated playlist header", p.Name)
+	}
 	_ = util.ReadUint32(data, &pos) // playlist length
 	_ = util.ReadUint16(data, &pos) // reserved
 	itemCount := int(util.ReadUint16(data, &pos))
@@ -244,6 +256,9 @@ func (p *PlaylistFile) Scan(streamFiles map[string]*StreamFile, clipFiles map[st
 
 	chapterClips := []*StreamClip{}
 	for range itemCount {
+		if pos < 0 || pos > len(data)-34 {
+			return fmt.Errorf("playlist %s truncated play item", p.Name)
+		}
 		itemStart := pos
 		itemLength := int(util.ReadUint16(data, &pos))
 		itemName := util.ReadString(data, 5, &pos)
@@ -293,8 +308,14 @@ func (p *PlaylistFile) Scan(streamFiles map[string]*StreamFile, clipFiles map[st
 
 		pos += 12
 		if multiangle > 0 {
+			if pos > len(data)-2 {
+				return fmt.Errorf("playlist %s truncated angle table", p.Name)
+			}
 			angles := int(data[pos])
 			pos += 2
+			if angles > 1 && (angles-1) > (len(data)-pos)/10 {
+				return fmt.Errorf("playlist %s truncated angle entries", p.Name)
+			}
 			for angle := 0; angle < angles-1; angle++ {
 				angleName := util.ReadString(data, 5, &pos)
 				_ = util.ReadString(data, 4, &pos)
@@ -325,6 +346,9 @@ func (p *PlaylistFile) Scan(streamFiles map[string]*StreamFile, clipFiles map[st
 			}
 		}
 
+		if pos > len(data)-16 {
+			return fmt.Errorf("playlist %s truncated stream table", p.Name)
+		}
 		_ = util.ReadUint16(data, &pos) // stream info length
 		pos += 2
 		streamCountVideo := int(data[pos])
@@ -703,6 +727,9 @@ func (p *PlaylistFile) updateVBRBitrates() {
 }
 
 func createPlaylistStream(data []byte, pos *int) stream.Info {
+	if *pos < 0 || *pos > len(data)-2 {
+		return nil
+	}
 	headerLength := int(data[*pos])
 	*pos += 1
 	headerPos := *pos
@@ -723,6 +750,9 @@ func createPlaylistStream(data []byte, pos *int) stream.Info {
 		pid = int(util.ReadUint16(data, pos))
 	}
 	*pos = headerPos + headerLength
+	if *pos > len(data)-2 {
+		return nil
+	}
 
 	streamLength := int(data[*pos])
 	*pos += 1
@@ -733,6 +763,9 @@ func createPlaylistStream(data []byte, pos *int) stream.Info {
 	var st stream.Info
 	switch streamType {
 	case stream.StreamTypeHEVCVideo, stream.StreamTypeAVCVideo, stream.StreamTypeMPEG1Video, stream.StreamTypeMPEG2Video, stream.StreamTypeVC1Video:
+		if *pos > len(data)-2 {
+			return nil
+		}
 		videoFormat := stream.VideoFormat(data[*pos] >> 4)
 		frameRate := stream.FrameRate(data[*pos] & 0x0F)
 		aspectRatio := stream.AspectRatio(data[*pos+1] >> 4)
@@ -747,6 +780,9 @@ func createPlaylistStream(data []byte, pos *int) stream.Info {
 		stream.StreamTypeDTSHDMasterAudio, stream.StreamTypeDTSHDSecondaryAudio,
 		stream.StreamTypeLPCMAudio, stream.StreamTypeMPEG1Audio, stream.StreamTypeMPEG2Audio,
 		stream.StreamTypeMPEG2AACAudio, stream.StreamTypeMPEG4AACAudio:
+		if *pos >= len(data) {
+			return nil
+		}
 		audioFormat := data[*pos]
 		*pos++
 		channelLayout := stream.ChannelLayout(audioFormat >> 4)

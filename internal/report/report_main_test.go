@@ -4,6 +4,7 @@
 package report
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/autobrr/go-bdinfo/internal/bdrom"
@@ -47,5 +48,47 @@ func TestSelectMainPlaylist_SkipsLoopingMenuByDefault(t *testing.T) {
 	}
 	if got[0].Name != "00800.MPLS" {
 		t.Fatalf("expected feature 00800.MPLS as main, got looping menu %s", got[0].Name)
+	}
+}
+
+func TestRenderedTimelineSelectionMatchesOutputModes(t *testing.T) {
+	cfg := settings.Default(".")
+	cfg.FilterLoopingPlaylists = false
+	cfg.FilterShortPlaylists = false
+	small := &bdrom.PlaylistFile{Name: "00001.MPLS", IsInitialized: true, Settings: cfg, StreamClips: []*bdrom.StreamClip{{Length: 100, FileSize: 1000, PacketCount: 10}}}
+	big := &bdrom.PlaylistFile{Name: "00002.MPLS", IsInitialized: true, Settings: cfg, StreamClips: []*bdrom.StreamClip{{Length: 50, FileSize: 2000, PacketCount: 20}}}
+	disc := &bdrom.BDROM{CaptureTimeline: true}
+	for _, tc := range []struct {
+		name               string
+		summary, main, big bool
+		want               []string
+	}{{"all", false, false, false, []string{big.Name, small.Name}}, {"big full", false, false, true, []string{big.Name}}, {"big summary", true, false, true, []string{big.Name, small.Name}}, {"main", false, true, false, []string{small.Name}}} {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := cfg
+			settings.SummaryOnly = tc.summary
+			settings.MainPlaylistOnly = tc.main
+			settings.BigPlaylistOnly = tc.big
+			_, out, err := RenderReport("-", disc, []*bdrom.PlaylistFile{small, big}, bdrom.ScanResult{}, settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(out.Playlists) != len(tc.want) {
+				t.Fatalf("selected %+v", out.Playlists)
+			}
+			for i, p := range out.Playlists {
+				if p.Name != tc.want[i] || !strings.Contains(out.Report, p.Name) {
+					t.Fatalf("selected %s text %q", p.Name, out.Report)
+				}
+			}
+			metadata := SelectPlaylists([]*bdrom.PlaylistFile{small, big}, settings)
+			if len(metadata) != len(out.Playlists) {
+				t.Fatal("discovery selection differs")
+			}
+			for i := range metadata {
+				if metadata[i] != out.Playlists[i] {
+					t.Fatal("discovery order differs")
+				}
+			}
+		})
 	}
 }
