@@ -41,7 +41,7 @@ func TestSelectMainPlaylist_SkipsLoopingMenuByDefault(t *testing.T) {
 		},
 	}
 
-	got := selectMainPlaylist([]*bdrom.PlaylistFile{menu, feature}, cfg)
+	got := selectMainPlaylist([]*bdrom.PlaylistFile{menu, feature}, cfg, false)
 
 	if len(got) != 1 {
 		t.Fatalf("expected exactly one main playlist, got %d", len(got))
@@ -88,6 +88,44 @@ func TestRenderedTimelineSelectionMatchesOutputModes(t *testing.T) {
 				if metadata[i] != out.Playlists[i] {
 					t.Fatal("discovery order differs")
 				}
+			}
+		})
+	}
+}
+
+func TestBigPlaylistDiscoveryAndScannedSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		smallPackets uint64
+		bigPackets   uint64
+		wantScanned  string
+	}{
+		{"matching sizes", 10, 20, "00002.MPLS"},
+		{"scanned sizes differ from file sizes", 10, 5, "00001.MPLS"},
+		{"scanned zero sizes retain name tie-break", 0, 0, "00001.MPLS"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := settings.Default(".")
+			cfg.BigPlaylistOnly = true
+			small := &bdrom.PlaylistFile{Name: "00001.MPLS", IsInitialized: true, Settings: cfg, StreamClips: []*bdrom.StreamClip{{Name: "00001.M2TS", Length: 100, FileSize: 1920}}}
+			big := &bdrom.PlaylistFile{Name: "00002.MPLS", IsInitialized: true, Settings: cfg, StreamClips: []*bdrom.StreamClip{{Name: "00002.M2TS", Length: 100, FileSize: 3840}}}
+			playlists := []*bdrom.PlaylistFile{small, big}
+			discovered := SelectPlaylists(playlists, cfg)
+			if len(discovered) != 1 || discovered[0].Name != big.Name {
+				t.Fatalf("discovery selected %+v, want %s", discovered, big.Name)
+			}
+			if playlists[0] != small || small.TotalSize() != 0 || big.TotalSize() != 0 {
+				t.Fatal("discovery mutated playlist order or packet counts")
+			}
+
+			small.StreamClips[0].PacketCount = tc.smallPackets
+			big.StreamClips[0].PacketCount = tc.bigPackets
+			_, out, err := RenderReport("-", &bdrom.BDROM{CaptureTimeline: true}, playlists, bdrom.ScanResult{}, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(out.Playlists) != 1 || out.Playlists[0].Name != tc.wantScanned || !strings.Contains(out.Report, tc.wantScanned) {
+				t.Fatalf("scanned report selected %+v, want %s", out.Playlists, tc.wantScanned)
 			}
 		})
 	}
