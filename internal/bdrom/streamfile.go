@@ -1065,18 +1065,6 @@ func (s *StreamFile) ScanWithProgress(ctx context.Context, playlists []*Playlist
 		}
 		n, err := f.Read(buf[carryLen : carryLen+chunkSize])
 		sourceBytes += int64(n)
-		if n == 0 && err != nil {
-			if collection != nil {
-				collectionClean = collectionErr == nil && err == io.EOF && carryLen == 0 && sourceBytes == fileInfo.Length()
-				if !collectionClean && collectionErr == nil {
-					collectionErr = err
-					if err == io.EOF {
-						collectionErr = io.ErrUnexpectedEOF
-					}
-				}
-			}
-			break
-		}
 
 		n += carryLen
 		aligned := n - (n % packetSize)

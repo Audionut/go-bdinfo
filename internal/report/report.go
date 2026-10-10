@@ -656,11 +656,6 @@ func extractForumsBlocks(report string) string {
 	return out.String()
 }
 
-func buildSummaryOnly(bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, settings settings.Settings) string {
-	text, _ := buildSummaryOnlyWithSelection(bd, playlists, settings)
-	return text
-}
-
 func buildSummaryOnlyWithSelection(bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, settings settings.Settings) (string, []*bdrom.PlaylistFile) {
 	if settings.MainPlaylistOnly {
 		playlists = selectMainPlaylist(playlists, settings)

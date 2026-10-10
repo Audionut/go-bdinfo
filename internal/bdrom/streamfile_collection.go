@@ -44,7 +44,6 @@ type videoDelivery struct {
 	segment               uint64
 	err                   error
 	callbackFailed        bool
-	finished              bool
 	observed              bool
 	active                bool
 	resync                bool
@@ -158,7 +157,7 @@ func (d *videoDelivery) failCallback(err error) {
 }
 
 func (d *videoDelivery) flush(ctx context.Context, terminal bool) {
-	if d.callbackFailed || d.finished || ctx.Err() != nil {
+	if d.callbackFailed || ctx.Err() != nil {
 		return
 	}
 	end := d.offset + uint64(len(d.data))
@@ -202,7 +201,7 @@ func (d *videoDelivery) appendPayload(ctx context.Context, payload []byte) {
 }
 
 func (d *videoDelivery) discontinuity(ctx context.Context, index uint64, size int, reason string, loss bool) {
-	if d.callbackFailed || d.finished || ctx.Err() != nil {
+	if d.callbackFailed || ctx.Err() != nil {
 		return
 	}
 	d.flush(ctx, true)
@@ -534,11 +533,9 @@ func (c *videoCollection) packet(pkt []byte, size, syncOffset int) {
 		d.headerNeed = 0
 	}
 	if d.remaining >= 0 && len(payload) > d.remaining {
-		for _, value := range payload[d.remaining:] {
-			if value != 0xff {
-				d.discontinuity(c.ctx, index, size, "non-stuffing bounded PES tail", true)
-				return
-			}
+		if !psiStuffing(payload[d.remaining:]) {
+			d.discontinuity(c.ctx, index, size, "non-stuffing bounded PES tail", true)
+			return
 		}
 		payload = payload[:d.remaining]
 	}
@@ -718,10 +715,8 @@ func validCollectionAdaptation(fields []byte) bool {
 				ext.take(int(ext.u8()))
 			}
 		} else {
-			for _, value := range ext.data[ext.pos:] {
-				if value != 0xff {
-					return false
-				}
+			if !psiStuffing(ext.data[ext.pos:]) {
+				return false
 			}
 		}
 		if ext.err != nil {
@@ -731,12 +726,7 @@ func validCollectionAdaptation(fields []byte) bool {
 	if r.err != nil {
 		return false
 	}
-	for _, value := range r.data[r.pos:] {
-		if value != 0xff {
-			return false
-		}
-	}
-	return r.err == nil
+	return psiStuffing(r.data[r.pos:])
 }
 
 func validCollectionPESFields(h []byte) bool {
@@ -817,12 +807,7 @@ func validCollectionPESFields(h []byte) bool {
 	if r.err != nil {
 		return false
 	}
-	for _, b := range r.data[r.pos:] {
-		if b != 0xff {
-			return false
-		}
-	}
-	return true
+	return psiStuffing(r.data[r.pos:])
 }
 
 // H.222.0 Annex B uses the non-reflected IEEE polynomial with an all-ones
@@ -870,9 +855,6 @@ func (c *videoCollection) finish(cause error, clean bool) []video.StreamResult {
 		c.mappingDamage(c.packetIndex, c.packetSize, "unfinished mapping section")
 	}
 	for _, d := range c.streams {
-		if d.finished {
-			continue
-		}
 		if cause != nil {
 			d.err = errors.Join(d.err, cause)
 		}
@@ -898,7 +880,6 @@ func (c *videoCollection) finish(cause error, clean bool) []video.StreamResult {
 			end.Err = io.ErrUnexpectedEOF
 		}
 		finishErr := d.consumer.Finish(end)
-		d.finished = true
 		d.result.Err = errors.Join(end.Err, finishErr)
 		d.result.CleanEOF = complete
 		d.result.SourcePacketCount = end.SourcePacketCount

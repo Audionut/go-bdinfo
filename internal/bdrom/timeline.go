@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/autobrr/go-bdinfo/pkg/bdinfo/video"
@@ -171,9 +170,6 @@ func parsePlaylistTimeline(data []byte, streams map[string]*StreamFile, clips ma
 			return nil, 0, fmt.Errorf("%w: wrapped/invalid MPLS range %d..%d", video.ErrUnsupportedMapping, in, out)
 		}
 		duration := uint64(out) - uint64(in)
-		if duration > math.MaxUint64-total {
-			return nil, 0, fmt.Errorf("MPLS duration overflow")
-		}
 		item := TimelineItem{Index: i, In45: in, Out45: out, Offset45: total, Duration45: duration, Connection: uint8(flags & 15)}
 		main := timelineAngle(clipID, stc, 0, streams, clips, ssif, in, out)
 		item.Angles = append(item.Angles, main)
