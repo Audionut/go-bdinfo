@@ -27,7 +27,7 @@ func timelineFixture(in, out uint32, repeat int) []byte {
 		binary.BigEndian.PutUint32(item[16:], out)
 		stn := make([]byte, 14)
 		stn[2] = 1
-		stn = append(stn, 3, 1, 0x10, 0x11, 3, 0x24, 0x61, 0)
+		stn = append(stn, 3, 1, 0x10, 0x11, 4, 0x24, 0x61, 0, 0)
 		item = append(item, byte(len(stn)>>8), byte(len(stn)))
 		item = append(item, stn...)
 		list = append(list, byte(len(item)>>8), byte(len(item)))
@@ -149,13 +149,13 @@ func TestTimelinePerItemMappingsAndReferenceArrays(t *testing.T) {
 	data[6] = 1
 	data[7] = 1
 	data[9] = 1
-	data = append(data, 3, 1, 0x10, 0x11, 3, 0x24, 0x61, 0)                   // primary video
+	data = append(data, 3, 1, 0x10, 0x11, 4, 0x24, 0x61, 0, 0)                // primary video
 	data = append(data, 3, 1, 0x12, 0x00, 4, 0x90, 'e', 'n', 'g')             // primary PG
 	data = append(data, 4, 3, 9, 0x11, 0x00, 6, 0xa1, 0x31, 'e', 'n', 'g', 0) // secondary audio
 	data = append(data, 3, 0, 0, 1, 2, 0)                                     // three references, padding
-	data = append(data, 5, 2, 4, 6, 0x10, 0x12, 3, 0x24, 0x61, 0)             // secondary video with subclip
+	data = append(data, 5, 2, 4, 6, 0x10, 0x12, 4, 0x24, 0x61, 0, 0)          // secondary video with subclip
 	data = append(data, 1, 0, 0, 0, 0, 0)                                     // one secondary-audio ref, zero PiP refs
-	data = append(data, 4, 4, 6, 0x10, 0x13, 3, 0x24, 0x61, 0)                // DV type 4 has no subclip
+	data = append(data, 4, 4, 6, 0x10, 0x13, 4, 0x24, 0x61, 0, 0)             // DV type 4 has no subclip
 	r := timelineReader{data: data}
 	got := parseTimelineSTN(&r)
 	if r.err != nil {
@@ -181,7 +181,7 @@ func TestTimelineSecondaryRoleRequiresSupportedEntry(t *testing.T) {
 		}
 		data = append(data, byte(len(entry)))
 		data = append(data, entry...)
-		data = append(data, 3, 0x24, 0x61, 0x30, 0, 0, 0, 0)
+		data = append(data, 4, 0x24, 0x61, 0x30, 0, 0, 0, 0, 0)
 		r := timelineReader{data: data}
 		mappings := parseTimelineSTN(&r)
 		want := video.Unknown

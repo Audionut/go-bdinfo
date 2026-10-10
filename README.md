@@ -99,9 +99,11 @@ Notes:
 Set `Options.IncludeTimeline` to obtain `Result.Timelines` with original unsigned
 MPLS IN/OUT boundaries, integer playlist offsets in **45 kHz ticks**, repeated
 occurrences, alternate angles, per-item video mappings, connection conditions,
-and CLPI clock sequences. The selected angle is currently zero. Timelines follow
-the playlists contributing to the selected report; summary and full-report
-selection can differ. `DiscoverPlaylists` returns metadata-only timelines and
+and CLPI clock sequences. The selected angle is currently zero. `Run` timelines
+follow the playlists contributing to the selected report; summary and full-report
+selection can differ. `DiscoverPlaylists` returns metadata-only timelines for
+every discovered playlist, or the explicit `Settings.PlaylistOnly` selection.
+Main/biggest, summary, and other report filters do not narrow discovery, which
 never invokes a video collector.
 
 Set `Options.VideoConsumer` to a `video.Factory` from
@@ -110,6 +112,10 @@ streams during the existing scan. This also enables timeline capture. Return
 `(nil, nil)` to decline a source/PID. Inspect the per-occurrence mappings to select
 primary HEVC; PID order and bitrate do not establish a primary stream. A physical
 source/PID is collected once, even when several playlists or occurrences use it.
+Collection happens before main/biggest report selection and needs no preselected
+playlist. With `Settings.PlaylistOnly`, only that playlist's referenced sources
+are scanned; otherwise collection can cover the broader disc scan. Decline
+unneeded sources/PIDs in the factory to limit decoder work.
 
 Each accepted consumer receives ordered synchronous `Consume` and
 `Discontinuity` calls and exactly one `Finish`. Different physical sources may

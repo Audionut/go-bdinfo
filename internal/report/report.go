@@ -145,7 +145,10 @@ func RenderReport(path string, bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile,
 		}
 	}
 
-	playlists = selectReportPlaylists(playlists, settings, false, false)
+	if settings.MainPlaylistOnly || settings.BigPlaylistOnly {
+		playlists = selectMainPlaylist(playlists, settings)
+	}
+	sort.SliceStable(playlists, func(i, j int) bool { return playlists[i].FileSize() > playlists[j].FileSize() })
 
 	separator := strings.Repeat("#", 10)
 	for _, playlist := range playlists {
@@ -545,7 +548,7 @@ func RenderReport(path string, bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile,
 	return reportName, out, nil
 }
 
-func selectMainPlaylist(playlists []*bdrom.PlaylistFile, settings settings.Settings, metadataOnly bool) []*bdrom.PlaylistFile {
+func selectMainPlaylist(playlists []*bdrom.PlaylistFile, settings settings.Settings) []*bdrom.PlaylistFile {
 	if len(playlists) == 0 {
 		return playlists
 	}
@@ -575,10 +578,6 @@ func selectMainPlaylist(playlists []*bdrom.PlaylistFile, settings settings.Setti
 		if settings.BigPlaylistOnly {
 			mainSize := main.TotalSize()
 			pSize := p.TotalSize()
-			if metadataOnly {
-				mainSize = main.MainAngleFileSize()
-				pSize = p.MainAngleFileSize()
-			}
 			if pSize > mainSize {
 				main = p
 				continue
@@ -628,35 +627,6 @@ func selectMainPlaylist(playlists []*bdrom.PlaylistFile, settings settings.Setti
 	return []*bdrom.PlaylistFile{main}
 }
 
-func selectReportPlaylists(playlists []*bdrom.PlaylistFile, cfg settings.Settings, summary, metadataOnly bool) []*bdrom.PlaylistFile {
-	if cfg.MainPlaylistOnly || cfg.BigPlaylistOnly && !summary {
-		playlists = selectMainPlaylist(playlists, cfg, metadataOnly)
-	} else if summary {
-		playlists = slices.Clone(playlists)
-	}
-	sort.SliceStable(playlists, func(i, j int) bool { return playlists[i].FileSize() > playlists[j].FileSize() })
-	return playlists
-}
-
-// SelectPlaylists selects discovery timelines using the corresponding report filters.
-// BigPlaylistOnly ranks main-angle file sizes;
-// scanned report selection uses packet sizes and can differ after trims or errors.
-// It sorts a copy and does not mutate its input.
-func SelectPlaylists(playlists []*bdrom.PlaylistFile, cfg settings.Settings) []*bdrom.PlaylistFile {
-	if cfg.SummaryOnly && !cfg.GenerateTextSummary {
-		return nil
-	}
-	selected := selectReportPlaylists(slices.Clone(playlists), cfg, cfg.SummaryOnly, true)
-	out := selected[:0]
-	for _, p := range selected {
-		if cfg.FilterLoopingPlaylists && !p.IsValid() {
-			continue
-		}
-		out = append(out, p)
-	}
-	return out
-}
-
 func extractForumsBlocks(report string) string {
 	const startMarker = "<--- BEGIN FORUMS PASTE --->"
 	const endMarker = "<---- END FORUMS PASTE ---->"
@@ -692,7 +662,13 @@ func buildSummaryOnly(bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, settings
 }
 
 func buildSummaryOnlyWithSelection(bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile, settings settings.Settings) (string, []*bdrom.PlaylistFile) {
-	playlists = selectReportPlaylists(playlists, settings, true, false)
+	if settings.MainPlaylistOnly {
+		playlists = selectMainPlaylist(playlists, settings)
+	} else {
+		// Sort a copy: the caller's order feeds the full report and Result.Playlists.
+		playlists = slices.Clone(playlists)
+	}
+	sort.SliceStable(playlists, func(i, j int) bool { return playlists[i].FileSize() > playlists[j].FileSize() })
 	var selected []*bdrom.PlaylistFile
 
 	protection := "AACS"

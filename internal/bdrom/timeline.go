@@ -116,7 +116,18 @@ func validateTimelineProgram(data []byte) error {
 		if n == 0 && r.err == nil {
 			return fmt.Errorf("%w: empty CLPI stream coding information", video.ErrIncomplete)
 		}
-		r.take(n)
+		coding := r.take(n)
+		if r.err != nil {
+			break
+		}
+		// Legacy CLPI parsing reads video format/rate and aspect outside a short
+		// declared region. Exact associations may reuse only fields inside it.
+		switch video.Codec(coding[0]) {
+		case video.MPEG1, video.MPEG2, video.AVC, video.MVC, video.HEVC, video.VC1:
+			if len(coding) < 3 {
+				return fmt.Errorf("%w: short CLPI video coding information for PID %#x", video.ErrIncomplete, pid)
+			}
+		}
 	}
 	if r.err != nil {
 		return fmt.Errorf("%w: CLPI program context: %v", video.ErrIncomplete, r.err)
@@ -308,11 +319,19 @@ func parseTimelineSTN(r *timelineReader) []video.Mapping {
 			}
 			attr := timelineReader{data: r.take(int(r.u8())), err: r.err}
 			m.Codec = video.Codec(attr.u8())
+			// MPLS classic video carries format/rate; HEVC also carries dynamic
+			// range/color and flags (libbluray mpls_parse.c). No aspect field here.
+			switch m.Codec {
+			case video.MPEG1, video.MPEG2, video.AVC, video.VC1:
+				attr.take(1)
+			case video.HEVC:
+				attr.take(3)
+			}
 			if entry.err != nil {
 				r.err = entry.err
 			}
 			if attr.err != nil {
-				r.err = attr.err
+				r.err = fmt.Errorf("%w: MPLS stream attributes: %v", video.ErrIncomplete, attr.err)
 			}
 			if r.err != nil {
 				return nil

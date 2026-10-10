@@ -41,7 +41,7 @@ func TestSelectMainPlaylist_SkipsLoopingMenuByDefault(t *testing.T) {
 		},
 	}
 
-	got := selectMainPlaylist([]*bdrom.PlaylistFile{menu, feature}, cfg, false)
+	got := selectMainPlaylist([]*bdrom.PlaylistFile{menu, feature}, cfg)
 
 	if len(got) != 1 {
 		t.Fatalf("expected exactly one main playlist, got %d", len(got))
@@ -62,7 +62,7 @@ func TestRenderedTimelineSelectionMatchesOutputModes(t *testing.T) {
 		name               string
 		summary, main, big bool
 		want               []string
-	}{{"all", false, false, false, []string{big.Name, small.Name}}, {"big full", false, false, true, []string{big.Name}}, {"big summary", true, false, true, []string{big.Name, small.Name}}, {"main", false, true, false, []string{small.Name}}} {
+	}{{"all", false, false, false, []string{big.Name, small.Name}}, {"big full", false, false, true, []string{big.Name}}, {"big summary", true, false, true, []string{big.Name, small.Name}}, {"main", false, true, false, []string{small.Name}}, {"main summary", true, true, false, []string{small.Name}}} {
 		t.Run(tc.name, func(t *testing.T) {
 			settings := cfg
 			settings.SummaryOnly = tc.summary
@@ -80,20 +80,11 @@ func TestRenderedTimelineSelectionMatchesOutputModes(t *testing.T) {
 					t.Fatalf("selected %s text %q", p.Name, out.Report)
 				}
 			}
-			metadata := SelectPlaylists([]*bdrom.PlaylistFile{small, big}, settings)
-			if len(metadata) != len(out.Playlists) {
-				t.Fatal("discovery selection differs")
-			}
-			for i := range metadata {
-				if metadata[i] != out.Playlists[i] {
-					t.Fatal("discovery order differs")
-				}
-			}
 		})
 	}
 }
 
-func TestBigPlaylistDiscoveryAndScannedSelection(t *testing.T) {
+func TestScannedPlaylistSelectionUsesPacketSizes(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		smallPackets uint64
@@ -104,29 +95,23 @@ func TestBigPlaylistDiscoveryAndScannedSelection(t *testing.T) {
 		{"scanned sizes differ from file sizes", 10, 5, "00001.MPLS"},
 		{"scanned zero sizes retain name tie-break", 0, 0, "00001.MPLS"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := settings.Default(".")
-			cfg.BigPlaylistOnly = true
-			small := &bdrom.PlaylistFile{Name: "00001.MPLS", IsInitialized: true, Settings: cfg, StreamClips: []*bdrom.StreamClip{{Name: "00001.M2TS", Length: 100, FileSize: 1920}}}
-			big := &bdrom.PlaylistFile{Name: "00002.MPLS", IsInitialized: true, Settings: cfg, StreamClips: []*bdrom.StreamClip{{Name: "00002.M2TS", Length: 100, FileSize: 3840}}}
-			playlists := []*bdrom.PlaylistFile{small, big}
-			discovered := SelectPlaylists(playlists, cfg)
-			if len(discovered) != 1 || discovered[0].Name != big.Name {
-				t.Fatalf("discovery selected %+v, want %s", discovered, big.Name)
-			}
-			if playlists[0] != small || small.TotalSize() != 0 || big.TotalSize() != 0 {
-				t.Fatal("discovery mutated playlist order or packet counts")
-			}
-
-			small.StreamClips[0].PacketCount = tc.smallPackets
-			big.StreamClips[0].PacketCount = tc.bigPackets
-			_, out, err := RenderReport("-", &bdrom.BDROM{CaptureTimeline: true}, playlists, bdrom.ScanResult{}, cfg)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(out.Playlists) != 1 || out.Playlists[0].Name != tc.wantScanned || !strings.Contains(out.Report, tc.wantScanned) {
-				t.Fatalf("scanned report selected %+v, want %s", out.Playlists, tc.wantScanned)
-			}
-		})
+		for _, mode := range []string{"main", "biggest"} {
+			t.Run(mode+"/"+tc.name, func(t *testing.T) {
+				cfg := settings.Default(".")
+				cfg.MainPlaylistOnly, cfg.BigPlaylistOnly = mode == "main", mode == "biggest"
+				small := &bdrom.PlaylistFile{Name: "00001.MPLS", IsInitialized: true, Settings: cfg, StreamClips: []*bdrom.StreamClip{{Name: "00001.M2TS", Length: 100, FileSize: 1920}}}
+				big := &bdrom.PlaylistFile{Name: "00002.MPLS", IsInitialized: true, Settings: cfg, StreamClips: []*bdrom.StreamClip{{Name: "00002.M2TS", Length: 100, FileSize: 3840}}}
+				playlists := []*bdrom.PlaylistFile{small, big}
+				small.StreamClips[0].PacketCount = tc.smallPackets
+				big.StreamClips[0].PacketCount = tc.bigPackets
+				_, out, err := RenderReport("-", &bdrom.BDROM{CaptureTimeline: true}, playlists, bdrom.ScanResult{}, cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(out.Playlists) != 1 || out.Playlists[0].Name != tc.wantScanned || !strings.Contains(out.Report, tc.wantScanned) {
+					t.Fatalf("scanned report selected %+v, want %s", out.Playlists, tc.wantScanned)
+				}
+			})
+		}
 	}
 }

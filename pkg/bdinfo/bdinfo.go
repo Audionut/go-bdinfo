@@ -119,8 +119,9 @@ type ScanInfo struct {
 
 // Result contains structured scan output plus rendered report content.
 type Result struct {
-	// Timelines describes playlists contributing to the selected report, or the
-	// equivalent metadata-only selection during discovery. This is not HDR extraction.
+	// Timelines describes playlists contributing to Run's selected report.
+	// Discovery returns timelines for every discovered playlist, or the explicit
+	// PlaylistOnly selection, independently of report filters. This is not HDR extraction.
 	Timelines []PlaylistTimeline
 	// Collection records factory decisions and transport outcomes separately from
 	// report generation. Discovery leaves it nil. Callback failures are nonfatal to Run.
@@ -144,6 +145,7 @@ type Result struct {
 // DiscoverPlaylists opens the disc and returns playlist metadata without scanning stream files.
 // Faster than Run for discovery: scans CLPI and MPLS only, skips the expensive M2TS read.
 // The returned Result has Disc and Playlists populated; Report, QuickSummary and ForumsBlock are always empty.
+// Requested timelines follow Playlists; main/biggest and summary settings do not narrow discovery.
 func DiscoverPlaylists(ctx context.Context, options Options) (Result, error) {
 	if options.Path == "" {
 		return Result{}, errors.New("path is required")
@@ -213,7 +215,7 @@ func DiscoverPlaylists(ctx context.Context, options Options) (Result, error) {
 		Scan:      buildScanInfo(scan),
 	}
 	if rom.CaptureTimeline {
-		result.Timelines = buildTimelines(report.SelectPlaylists(playlists, cfg), rom.StreamFiles, false)
+		result.Timelines = buildTimelines(playlists, rom.StreamFiles, false)
 	}
 
 	emit(options.OnProgress, ProgressEvent{
