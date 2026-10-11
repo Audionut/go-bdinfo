@@ -11,15 +11,15 @@ import (
 	"github.com/autobrr/go-bdinfo/pkg/bdinfo/video"
 )
 
-// PlaylistTimeline retains exact ordered MPLS occurrences. All tick fields use
-// 45,000 ticks/second; source PES clocks use 90,000. SelectedAngle is zero in this
-// API; each item records its selected alternative and retains other angles.
-// Complete means parsed timing and selected STC associations are valid, not that
-// video/HDR was extracted. Scanned distinguishes Run from metadata-only discovery
-// and indicates a scan attempt; consult Result.Collection for transport outcomes.
-// Discovery validates file extents using nominal 192-byte M2TS framing. Run can
-// invalidate that association when it observes a bare 188-byte TS container.
-// Err explains invalid/unsupported timing. Returned slices are owned snapshots.
+// PlaylistTimeline retains exact MPLS occurrences in playback order.
+// Times use 45,000 ticks/second; PES clocks use 90,000. SelectedAngle is zero.
+// Each item identifies its selected alternative and retains the other angles.
+// Complete means timing and selected STC clock associations are valid.
+// It does not mean that video or HDR metadata was extracted.
+// Scanned indicates that Run attempted a scan. See Result.Collection for outcomes.
+// Discovery assumes 192-byte M2TS packets when checking file extents.
+// Run invalidates that clock association if it finds bare 188-byte TS packets.
+// Err explains invalid or unsupported timing. Returned slices are owned snapshots.
 type PlaylistTimeline struct {
 	Name          string
 	SelectedAngle int
@@ -31,11 +31,12 @@ type PlaylistTimeline struct {
 }
 
 // PlayItem is one occurrence, including repeated uses of the same physical clip.
-// Index is zero-based. In45/Out45 preserve unsigned MPLS values and define a
-// half-open interval. Offset45 and Duration45 are checked integer accumulations,
-// counted once per item. ConnectionCondition preserves the raw join condition;
-// it alone does not prove decoder/metadata state continuity. SelectedAlternative
-// indexes Angles and currently equals zero. Err covers unsupported join semantics.
+// Index is zero-based. In45/Out45 preserve unsigned MPLS values for [In45, Out45).
+// Offset45 and Duration45 use integer ticks, counted once per item.
+// ConnectionCondition preserves the raw join condition. It cannot alone prove
+// that decoder or metadata state continues across the join.
+// SelectedAlternative indexes Angles and currently equals zero.
+// Err covers unsupported join conditions.
 type PlayItem struct {
 	Index               int
 	In45                uint32
@@ -80,8 +81,8 @@ func buildTimelines(playlists []*bdrom.PlaylistFile, streams map[string]*bdrom.S
 					angle.Err = errors.Join(angle.Err, fmt.Errorf("%w: 188-byte TS and CLPI packet domains require mapping", video.ErrUnsupportedMapping))
 				}
 				if a.STC != nil {
-					copy := *a.STC
-					angle.STC = &copy
+					sequence := *a.STC
+					angle.STC = &sequence
 				}
 				entry.Angles = append(entry.Angles, angle)
 			}

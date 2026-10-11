@@ -13,8 +13,10 @@ import (
 	"io"
 	"math/bits"
 	"slices"
+	"sync/atomic"
 	"testing"
 
+	"github.com/autobrr/go-bdinfo/internal/settings"
 	"github.com/autobrr/go-bdinfo/internal/stream"
 	"github.com/autobrr/go-bdinfo/pkg/bdinfo/video"
 )
@@ -488,12 +490,93 @@ func TestCollectionReaderPassCount(t *testing.T) {
 			t.Fatalf("enabled=%v opens=%d closes=%d (two existing PMT probes and one full scan)", enabled, fi.opens, fi.closes)
 		}
 		if !enabled {
-			if fi.sourceNameCalls != 0 {
+			if fi.sourceNameCalls.Load() != 0 {
 				t.Fatal("disabled collection constructed a source identity")
 			}
 			baselineReads = append([]int(nil), fi.readBytes...)
 		} else if !slices.Equal(baselineReads, fi.readBytes) {
 			t.Fatalf("collection added reads: baseline %v enabled %v", baselineReads, fi.readBytes)
+		}
+	}
+}
+
+func TestCollectionSharedPlaylistReaderPassCount(t *testing.T) {
+	packets := benchmarkStreamData()
+	copy(packets[2*188:3*188], packets[:188])
+	packets[2*188+3] = 0x12
+	pat := psiWithCRC([]byte{0, 0xb0, 13, 0, 1, 0xc1, 0, 0, 0, 1, 0xf0, 0})
+	pmt := psiWithCRC([]byte{2, 0xb0, 18, 0, 1, 0xc1, 0, 0, 0xf0, 0x11, 0xf0, 0, 0x24, 0xf0, 0x11, 0xf0, 0})
+	copy(packets, collectionPacket(0, 0, true, append([]byte{0}, pat...)))
+	copy(packets[188:], collectionPacket(0x1000, 0, true, append([]byte{0}, pmt...)))
+	var data []byte
+	for at := 0; at < len(packets); at += 188 {
+		data = append(data, 0, 0, 0, 0)
+		data = append(data, packets[at:at+188]...)
+	}
+	clpi := make([]byte, 60)
+	copy(clpi, "HDMV0200")
+	binary.BigEndian.PutUint32(clpi[8:], 60)
+	binary.BigEndian.PutUint32(clpi[40:], 16)
+	binary.BigEndian.PutUint32(clpi[56:], uint32(len(data)/192))
+	sequence := make([]byte, 22)
+	sequence[1], sequence[6], sequence[7] = 1, 1, 7
+	binary.BigEndian.PutUint16(sequence[8:], 0x1001)
+	binary.BigEndian.PutUint32(sequence[18:], 90000)
+	clpi = append(binary.BigEndian.AppendUint32(clpi, uint32(len(sequence))), sequence...)
+	binary.BigEndian.PutUint32(clpi[12:], uint32(len(clpi)))
+	program := make([]byte, 18)
+	program[1], program[8] = 1, 1
+	copy(program[10:], []byte{0x10, 0x11, 4, 0x24, 0x61, 0x30, 0})
+	clpi = append(binary.BigEndian.AppendUint32(clpi, uint32(len(program))), program...)
+	var baselineReads []int
+	for _, enabled := range []bool{false, true} {
+		fi := &collectionReadFile{memFileInfo: memFileInfo{name: "00001.M2TS", data: data}, err: io.EOF, reportedLength: int64(len(data))}
+		sf := NewStreamFile(fi)
+		cf := NewStreamClipFile(&memFileInfo{name: "00001.CLPI", data: clpi})
+		bd := &BDROM{
+			CaptureTimeline: enabled,
+			StreamFiles:     map[string]*StreamFile{sf.Name: sf},
+			StreamClipFiles: map[string]*StreamClipFile{cf.Name: cf},
+			PlaylistFiles:   make(map[string]*PlaylistFile),
+		}
+		for _, name := range []string{"00000.MPLS", "00001.MPLS"} {
+			bd.PlaylistFiles[name] = NewPlaylistFile(&memFileInfo{name: name, data: timelineFixture(1, 45001, 2)}, settings.Settings{})
+		}
+		consumer := &discardVideo{}
+		calls := 0
+		if enabled {
+			bd.VideoConsumer = func(_ context.Context, info video.StreamInfo) (video.Consumer, error) {
+				calls++
+				if len(info.Occurrences) != 4 {
+					t.Fatalf("occurrences: %+v", info.Occurrences)
+				}
+				return consumer, nil
+			}
+		}
+		result := bd.ScanWithProgress(t.Context(), nil)
+		if result.ScanError != nil || len(result.FileErrors) != 0 {
+			t.Fatalf("scan: %+v", result)
+		}
+		fullReads := 0
+		for _, n := range fi.readBytes {
+			if n == len(data) {
+				fullReads++
+			}
+		}
+		if fullReads != 1 || fi.opens != fi.closes {
+			t.Fatalf("enabled=%v full passes=%d bytes=%v opens/closes=%d/%d", enabled, fullReads, fi.readBytes, fi.opens, fi.closes)
+		}
+		if !enabled {
+			baselineReads = slices.Clone(fi.readBytes)
+			continue
+		}
+		if !slices.Equal(baselineReads, fi.readBytes) || calls != 1 || !consumer.complete || consumer.bytes != uint64((32768-2)*184-9) {
+			t.Fatalf("reads %v baseline %v calls %d consumer %+v", fi.readBytes, baselineReads, calls, consumer)
+		}
+		for _, p := range bd.PlaylistFiles {
+			if len(p.TimelineItems) != 2 || p.TimelineErr != nil {
+				t.Fatalf("playlist %s items=%d err=%v", p.Name, len(p.TimelineItems), p.TimelineErr)
+			}
 		}
 	}
 }
@@ -652,11 +735,14 @@ type collectionReadFile struct {
 	reportedLength  int64
 	opens, closes   int
 	readBytes       []int
-	sourceNameCalls int
+	sourceNameCalls atomic.Int64
 }
 
-func (f *collectionReadFile) Length() int64    { return f.reportedLength }
-func (f *collectionReadFile) FullName() string { f.sourceNameCalls++; return f.memFileInfo.FullName() }
+func (f *collectionReadFile) Length() int64 { return f.reportedLength }
+func (f *collectionReadFile) FullName() string {
+	f.sourceNameCalls.Add(1)
+	return f.memFileInfo.FullName()
+}
 func (f *collectionReadFile) OpenRead() (io.ReadCloser, error) {
 	f.opens++
 	f.readBytes = append(f.readBytes, 0)
@@ -706,6 +792,56 @@ func TestVideoCollectionReadTermination(t *testing.T) {
 			}
 			if tc.err == cause && (!errors.Is(s.Collection[0].Err, cause) || !bytes.Equal(r.data, []byte{1, 1})) {
 				t.Fatalf("data %v result %+v", r.data, s.Collection)
+			}
+		})
+	}
+}
+
+func TestVideoCollectionSinglePacketEOF(t *testing.T) {
+	t.Run("report scanner accepts whole packet", func(t *testing.T) {
+		data := collectionPacket(0x1011, 0, true, collectionPES([]byte{1, 2, 3}, 0, 0, true))
+		s := NewStreamFile(&memFileInfo{name: "TEST.M2TS", data: data})
+		if err := s.Scan(nil, false); err != nil {
+			t.Fatalf("whole TS packet: %v", err)
+		}
+	})
+	cause := errors.New("source failure")
+	for _, tc := range []struct {
+		name        string
+		tail        int
+		readErr     error
+		extraLength int64
+		complete    bool
+	}{
+		{"whole packet", 0, io.EOF, 0, true},
+		{"one trailing byte", 1, io.EOF, 0, false},
+		{"two trailing bytes", 2, io.EOF, 0, false},
+		{"three trailing bytes", 3, io.EOF, 0, false},
+		{"read failure", 0, cause, 0, false},
+		{"declared extent missing", 0, io.EOF, 188, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := collectionPacket(0x1011, 0, true, collectionPES([]byte{1, 2, 3}, 0, 0, true))
+			data = append(data, make([]byte, tc.tail)...)
+			fi := &collectionReadFile{memFileInfo: memFileInfo{name: "TEST.M2TS", data: data}, err: tc.readErr, reportedLength: int64(len(data)) + tc.extraLength}
+			s := NewStreamFile(fi)
+			s.Streams[0x1011] = &stream.VideoStream{Stream: stream.Stream{PID: 0x1011, StreamType: stream.StreamTypeHEVCVideo}}
+			r := &recordingVideo{}
+			s.VideoConsumer = func(context.Context, video.StreamInfo) (video.Consumer, error) { return r, nil }
+			_ = s.Scan(nil, false)
+			if !bytes.Equal(r.data, []byte{1, 2, 3}) || len(r.ends) != 1 || len(s.Collection) != 1 || fi.opens != fi.closes {
+				t.Fatalf("data %v ends %+v results %+v opens/closes %d/%d", r.data, r.ends, s.Collection, fi.opens, fi.closes)
+			}
+			end, result := r.ends[0], s.Collection[0]
+			if tc.complete {
+				if !end.CleanEOF || end.Err != nil || end.SourcePacketCount != 1 || result.Status != video.Complete || result.Err != nil || result.SourcePacketCount != 1 {
+					t.Fatalf("complete packet: end %+v result %+v", end, result)
+				}
+			} else if end.CleanEOF || end.Err == nil || end.SourcePacketCount != 0 || result.Status != video.Incomplete || result.SourcePacketCount != 0 {
+				t.Fatalf("damaged source: end %+v result %+v", end, result)
+			}
+			if tc.readErr == cause && !errors.Is(result.Err, cause) {
+				t.Fatalf("lost source failure: %v", result.Err)
 			}
 		})
 	}

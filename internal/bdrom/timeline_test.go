@@ -80,6 +80,7 @@ func TestSTCSequenceBoundsAndClockResets(t *testing.T) {
 	data := make([]byte, 60)
 	copy(data, "HDMV0200")
 	binary.BigEndian.PutUint32(data[8:], 60)
+	binary.BigEndian.PutUint32(data[40:], 16)
 	binary.BigEndian.PutUint32(data[56:], 100)
 	seq := []byte{0, 1, 0, 0, 0, 0, 2, 7}
 	for i := range 2 {

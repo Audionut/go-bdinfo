@@ -255,8 +255,8 @@ func timelineAngle(name string, id uint8, index int, streams map[string]*StreamF
 			a.Err = errors.Join(a.Err, fmt.Errorf("%w: ambiguous STC ID %d", video.ErrUnsupportedMapping, id))
 			return a
 		}
-		copy := seq
-		a.STC = &copy
+		sequence := seq
+		a.STC = &sequence
 	}
 	if a.STC == nil {
 		a.Err = errors.Join(a.Err, fmt.Errorf("%w: missing STC ID %d", video.ErrUnsupportedMapping, id))
@@ -369,11 +369,19 @@ func parseSTCSequences(data []byte) ([]video.STCSequence, error) {
 	if offset < 40 || offset > uint64(len(data)-4) {
 		return nil, fmt.Errorf("%w: invalid CLPI sequence offset", video.ErrUnsupportedMapping)
 	}
+	// ClipInfo precedes SequenceInfo. Its declared body must contain the source
+	// packet count before that count can bound an exact clock association.
+	clipRoot := timelineReader{data: data[:int(offset)], pos: 40}
+	clip := clipRoot.section32()
+	clip.take(12)
+	packetCount := uint64(clip.u32())
+	if clip.err != nil {
+		return nil, fmt.Errorf("%w: invalid CLPI ClipInfo: %v", video.ErrIncomplete, clip.err)
+	}
 	root := timelineReader{data: data, pos: int(offset)}
 	r := root.section32()
 	r.take(1)
 	count := int(r.u8())
-	packetCount := uint64(binary.BigEndian.Uint32(data[56:60]))
 	var out []video.STCSequence
 	for atcIndex := range count {
 		atcStart := r.u32()

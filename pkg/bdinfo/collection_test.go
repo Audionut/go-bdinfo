@@ -55,6 +55,7 @@ func writeDiscFixture(t *testing.T, root string) {
 	clpi := make([]byte, 60)
 	copy(clpi, "HDMV0200")
 	binary.BigEndian.PutUint32(clpi[8:], 60)
+	binary.BigEndian.PutUint32(clpi[40:], 16)
 	binary.BigEndian.PutUint32(clpi[56:], 2)
 	seq := make([]byte, 22)
 	seq[1] = 1
@@ -469,7 +470,11 @@ func TestTimelineRequiresMainVideoCLPIMapping(t *testing.T) {
 }
 
 func TestTimelineSTCRangeRequiresPhysicalM2TSPackets(t *testing.T) {
-	for _, mode := range []string{"valid", "unknown count valid", "start beyond source", "end beyond source", "unknown count start beyond source", "partial packet", "188 byte packet domain"} {
+	for _, mode := range []string{
+		"valid", "unknown count valid", "start beyond source", "end beyond source",
+		"unknown count start beyond source", "partial packet", "188 byte packet domain",
+		"empty clip info", "short clip info", "clip info overlaps sequence", "clip info beyond file",
+	} {
 		t.Run(mode, func(t *testing.T) {
 			root := discFixture(t)
 			path := filepath.Join(root, "BDMV", "CLIPINF", "00001.clpi")
@@ -484,6 +489,14 @@ func TestTimelineSTCRangeRequiresPhysicalM2TSPackets(t *testing.T) {
 				t.Fatal(err)
 			}
 			switch mode {
+			case "empty clip info":
+				binary.BigEndian.PutUint32(data[40:], 0)
+			case "short clip info":
+				binary.BigEndian.PutUint32(data[40:], 15)
+			case "clip info overlaps sequence":
+				binary.BigEndian.PutUint32(data[40:], 17)
+			case "clip info beyond file":
+				binary.BigEndian.PutUint32(data[40:], ^uint32(0))
 			case "unknown count valid":
 				binary.BigEndian.PutUint32(data[56:], 0)
 			case "start beyond source":

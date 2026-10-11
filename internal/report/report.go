@@ -148,7 +148,9 @@ func RenderReport(path string, bd *bdrom.BDROM, playlists []*bdrom.PlaylistFile,
 	if settings.MainPlaylistOnly || settings.BigPlaylistOnly {
 		playlists = selectMainPlaylist(playlists, settings)
 	}
-	sort.SliceStable(playlists, func(i, j int) bool { return playlists[i].FileSize() > playlists[j].FileSize() })
+	sort.SliceStable(playlists, func(i, j int) bool {
+		return playlists[i].FileSize() > playlists[j].FileSize()
+	})
 
 	separator := strings.Repeat("#", 10)
 	for _, playlist := range playlists {
@@ -663,7 +665,9 @@ func buildSummaryOnlyWithSelection(bd *bdrom.BDROM, playlists []*bdrom.PlaylistF
 		// Sort a copy: the caller's order feeds the full report and Result.Playlists.
 		playlists = slices.Clone(playlists)
 	}
-	sort.SliceStable(playlists, func(i, j int) bool { return playlists[i].FileSize() > playlists[j].FileSize() })
+	sort.SliceStable(playlists, func(i, j int) bool {
+		return playlists[i].FileSize() > playlists[j].FileSize()
+	})
 	var selected []*bdrom.PlaylistFile
 
 	protection := "AACS"

@@ -640,19 +640,25 @@ func (s *StreamFile) ScanWithProgress(ctx context.Context, playlists []*Playlist
 	s.Size = fileInfo.Length()
 
 	first := make([]byte, 192)
+	var n int
+	var firstErr error
 	if collection == nil {
-		if _, err := io.ReadFull(f, first); err != nil {
-			return err
-		}
+		n, firstErr = io.ReadFull(f, first)
 	} else {
 		// ReadFull drops an error accompanying a full buffer. Collection must retain
 		// that source failure without changing the report's initial-read behavior.
-		n, firstErr := collection.readPrefix(f, first)
+		n, firstErr = collection.readPrefix(f, first)
 		if firstErr != nil && firstErr != io.EOF {
 			collectionErr = firstErr
 		}
-		if n != len(first) {
-			if n >= 188 && first[0] == 0x47 {
+	}
+	if n != len(first) {
+		// A bare TS packet is complete at 188 bytes. The larger probe only serves
+		// M2TS framing; it must not turn this valid EOF into a truncated packet.
+		if n == 188 && first[0] == 0x47 && (firstErr == io.EOF || firstErr == io.ErrUnexpectedEOF) {
+			first = first[:188]
+		} else {
+			if collection != nil && n >= 188 && first[0] == 0x47 {
 				s.PacketSize = 188
 				collection.invalidatePacketDomain()
 				collection.packet(first[:188], 188, 0)

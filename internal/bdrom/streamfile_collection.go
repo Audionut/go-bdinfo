@@ -21,9 +21,9 @@ import (
 const collectionBatchSize = 64 << 10
 const collectionBoundaryLimit = 256
 
-// This strict optional path shares packets with the legacy report scanner. Its
-// small independent PES header state preserves raw timing without changing the
-// report's DTS substitution, prefix limits, or tolerated damaged-input behavior.
+// This optional collector shares packets with the report scanner.
+// Separate PES header state preserves original timestamps. The report keeps its
+// DTS substitution, probe limits, and tolerance of damaged input.
 type videoCollection struct {
 	ctx         context.Context
 	streams     map[uint16]*videoDelivery
@@ -102,8 +102,8 @@ func cloneVideoInfo(info video.StreamInfo) video.StreamInfo {
 	info.Occurrences = append([]video.Occurrence(nil), info.Occurrences...)
 	for i := range info.Occurrences {
 		if info.Occurrences[i].STC != nil {
-			copy := *info.Occurrences[i].STC
-			info.Occurrences[i].STC = &copy
+			sequence := *info.Occurrences[i].STC
+			info.Occurrences[i].STC = &sequence
 		}
 	}
 	return info
@@ -637,8 +637,8 @@ func (c *videoCollection) consumePSI(pid uint16, section []byte, index uint64, s
 }
 
 func (c *videoCollection) invalidatePacketDomain() {
-	// Factory context is a pre-scan snapshot. Keep final occurrence context honest
-	// when bare 188-byte TS framing disproves its nominal logical M2TS coordinates.
+	// The factory received a snapshot before scanning. Bare 188-byte TS packets
+	// cannot use the assumed M2TS clock mapping. Record that in the final results.
 	for i := range c.results {
 		for j := range c.results[i].Info.Occurrences {
 			o := &c.results[i].Info.Occurrences[j]

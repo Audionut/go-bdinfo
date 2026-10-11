@@ -43,7 +43,10 @@ Run a parity check after every parser or report change. Classify every diff line
 - Playlist same-language ordering: English audio/graphics/text streams of the same type keep PID ascending. Anchor: `The.Man.Who.Wasnt.There...`, 39.435 kbps subtitle before 68.796 kbps.
 
 ### Quick Manual Parity Check (Report Text)
-Byte-exact diff, run on the media host. Sample 1-2 discs, never the full dataset.
+Compare reports byte for byte on a machine with a local disc and the reference
+binary. Sample 1-2 discs, never the full dataset. The `root@media` host and paths
+below belong to a maintainer's environment; contributors do not need access to it.
+Use local paths and record the reference version, settings, and classified diffs.
 
 ```bash
 off=/root/github/oss/bdinfo-official/bdinfo_linux_v2.0.5_extracted/BDInfo
@@ -67,6 +70,13 @@ go test ./internal/parity -run TestParity_OfficialBDInfo_ReportText -count=1
 
 ### Speed Loop
 Full scans are disk-bound; compare CPU time before wall time. `scripts/speed_parity_loop.sh --disc "<disc-or-iso>" --reps 3` runs official and ours with matched toggles, checks parity per rep, and prints the median wall-time ratio. Smoke with `--reps 1` on one ISO, one static, and one Network-like disc, then `--reps 3` on the regressing sample. If Network-like discs regress, check the clip-target matching path in `internal/bdrom/streamfile.go` first.
+
+Pass `--official "<local-binary>"` or set `BDINFO_OFFICIAL_BIN` to override the
+script's maintainer-specific default. The oracle test also accepts
+`BDINFO_PARITY_DISC` and `BDINFO_OFFICIAL_BIN`. On Windows, use the dotnetcorecorner
+BDInfo Windows x64 2.0.5 CLI for the matching reference version. Use PowerShell for
+native process measurements, or Git Bash for the shell script. Record storage and
+cache conditions; a cached local run does not establish cold-HDD performance.
 
 ## Fuzzing
 `FUZZTIME=30s scripts/fuzz.sh` runs every fuzz target the CI job runs; add new targets to its `TARGETS` list.
