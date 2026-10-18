@@ -84,4 +84,4 @@ cache conditions; a cached local run does not establish cold-HDD performance.
 ## Agent skills
 - Issue tracker (GitHub Issues via `gh`): `docs/agents/issue-tracker.md`
 - Triage labels: `docs/agents/triage-labels.md`
-- Domain docs (`CONTEXT.md`, `docs/adr/`, created lazily): `docs/agents/domain.md`
+- Domain docs (`GLOSSARY.md`, `docs/adr/`, created lazily): `docs/agents/domain.md`
