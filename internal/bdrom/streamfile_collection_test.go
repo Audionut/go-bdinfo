@@ -36,7 +36,10 @@ type recordingVideo struct {
 
 func (r *recordingVideo) Consume(_ context.Context, c video.Chunk) error {
 	r.data = append(r.data, c.Data...)
-	r.boundaries = append(r.boundaries, c.Starts...)
+	for _, start := range c.Starts {
+		start.Header = bytes.Clone(start.Header)
+		r.boundaries = append(r.boundaries, start)
+	}
 	r.chunkSizes = append(r.chunkSizes, len(c.Data))
 	r.chunkStartCounts = append(r.chunkStartCounts, len(c.Starts))
 	if r.onConsume != nil {
@@ -407,6 +410,43 @@ func TestVideoCollectionBoundaryOnlyBatches(t *testing.T) {
 	for _, count := range r.chunkStartCounts {
 		if count > collectionBoundaryLimit {
 			t.Fatalf("unbounded boundary batch: %d", count)
+		}
+	}
+}
+
+func TestVideoCollectionHeadersSurviveBatchReuse(t *testing.T) {
+	var data, wantPayload []byte
+	var wantHeaders [][]byte
+	cc := byte(0)
+	for i := range 800 {
+		var payload []byte
+		switch {
+		case i == 0 || i == 350:
+			payload = bytes.Repeat([]byte{byte(i)}, collectionBatchSize+17)
+		case i%37 == 0:
+			payload = []byte{byte(i)}
+		}
+		wantPayload = append(wantPayload, payload...)
+		header := collectionPES(nil, uint64(i*3003), uint64(i*3000), false)
+		// Different header sizes exercise compaction, including the 264-byte maximum.
+		header = append(header, bytes.Repeat([]byte{0xff}, i%246)...)
+		header[8] = byte(len(header) - 9)
+		wantHeaders = append(wantHeaders, bytes.Clone(header))
+		pes := append(header, payload...)
+		for start := true; len(pes) > 0; start = false {
+			n := min(184, len(pes))
+			data = append(data, collectionPacket(0x1011, cc, start, pes[:n])...)
+			cc++
+			pes = pes[n:]
+		}
+	}
+	r, results := scanVideo(t, data)
+	if results[0].Status != video.Complete || !bytes.Equal(r.data, wantPayload) || len(r.boundaries) != len(wantHeaders) {
+		t.Fatalf("result %+v, bytes %d/%d, boundaries %d/%d", results, len(r.data), len(wantPayload), len(r.boundaries), len(wantHeaders))
+	}
+	for i, start := range r.boundaries {
+		if !bytes.Equal(start.Header, wantHeaders[i]) {
+			t.Fatalf("header %d: got %x, want %x", i, start.Header, wantHeaders[i])
 		}
 	}
 }

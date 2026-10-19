@@ -39,6 +39,30 @@ func discFixture(t *testing.T) string {
 	return root
 }
 
+func TestTruncatedPlaylistStreamAddsReportWarning(t *testing.T) {
+	root := discFixture(t)
+	path := filepath.Join(root, "BDMV", "PLAYLIST", "00000.mpls")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Cut the attributes of the final stream in the final play item.
+	if err := os.WriteFile(path, data[:len(data)-9], 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := bdinfo.DefaultSettings(".")
+	cfg.FilterShortPlaylists = false
+	for _, capture := range []bool{false, true} {
+		result, err := bdinfo.Run(t.Context(), bdinfo.Options{Path: root, Settings: cfg, IncludeTimeline: capture})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(result.Report, "WARNING: File errors") || !strings.Contains(result.Report, "00000.MPLS") {
+			t.Fatalf("capture %v: missing playlist file warning in report:\n%s", capture, result.Report)
+		}
+	}
+}
+
 func writeDiscFixture(t *testing.T, root string) {
 	t.Helper()
 	for _, dir := range []string{"PLAYLIST", "CLIPINF", "STREAM"} {

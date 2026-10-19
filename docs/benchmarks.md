@@ -92,6 +92,42 @@ Every difference against the reference was classified:
 The reference ZIP SHA-256 was
 `f3eb6ab765b8ff931df9825a40a452714b8ea17d70f1ee51f0c0000789f1574f`.
 
+### October 19 review fixes
+
+A fresh comparison used the same source, reference binary, settings, harness and
+warm-cache method above. Main was `6f24c633970feaa487fc8a7cd8a0826eb41210d7`.
+The candidate was `d4ba900fe250adcb65bcbaaff36fd3c4df086596` plus the October 18
+review fixes: explicit stream-entry errors, removal of placeholder angle fields,
+collection-only source-byte accounting, and reusable PES-header storage.
+The measured source fingerprint was
+`sha256:c29207c0c42c71cf9067974bfe7a90c72ffbda4aa32d1ff5255e542594b8464f`.
+
+After one warm-up per mode, five runs per mode alternated execution order.
+The table gives medians; `Run` time excludes process startup.
+
+| Mode | Run wall s | User CPU s | System CPU s | Peak working set MiB | Allocations | Allocated bytes |
+|---|---:|---:|---:|---:|---:|---:|
+| Main | 0.5387 | 0.1719 | 0.3750 | 38.16 | 10,682 | 76,761,120 |
+| Branch, disabled | 0.5426 | 0.1406 | 0.4063 | 38.92 | 10,690 | 81,999,976 |
+| Branch, enabled | 1.0219 | 0.5313 | 0.5000 | 44.86 | 37,266 | 95,986,160 |
+
+All 18 Go reports, including warm-ups, were byte-identical across the three modes.
+The fresh official run differed only in CRLF line endings and the same two known
+PGS-caption lines. All runs again recorded 3,034,419,135 process read bytes and
+640 read operations. Enabled collection again delivered 2,862,654,518 ES bytes
+across six complete streams with valid clock associations.
+
+Enabled allocations fell from the earlier 57,119 to 37,266, consistent with
+replacing per-PES header copies with reusable batch storage. The measurements are
+separate runs, not a controlled attribution of every allocation difference.
+Disabled `Run` wall time was 0.7% above main in this sample. Median total CPU
+(computed per run before taking the median) was 0.5313 s on main, 0.5469 s
+disabled, and 1.0313 s enabled. Disabled total CPU was 2.9% above main, so this
+sample does not establish a no-regression result. This cached folder test does
+not replace the maintainer's planned storage-host gate: three runs each
+on a folder and an ISO, with collection disabled; median CPU more than 1% above
+main on both samples blocks merging. That gate remains outstanding.
+
 ## Results
 
 Median of 3 runs. The official binary ran once. The official binary did not run on the .iso because the container cannot loop-mount an image. Lower is better in every table.

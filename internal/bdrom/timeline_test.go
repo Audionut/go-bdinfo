@@ -5,6 +5,8 @@ package bdrom
 
 import (
 	"encoding/binary"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/autobrr/go-bdinfo/internal/settings"
@@ -73,6 +75,40 @@ func TestLegacyPlaylistTruncationRemainsSafe(t *testing.T) {
 			p := NewPlaylistFile(&memFileInfo{name: "00000.MPLS", data: data[:n]}, settings.Settings{})
 			p.CaptureTimeline = capture
 			_ = p.Scan(map[string]*StreamFile{sf.Name: sf}, map[string]*StreamClipFile{cf.Name: cf})
+		}
+	}
+}
+
+func TestLegacyPlaylistTruncatedStreamEntries(t *testing.T) {
+	// Exercise every caller, including the ignored PIP stream table, in the last item.
+	for table := range 7 {
+		for _, attributes := range [][]byte{
+			{4, 0x24, 0x61, 0x30, 0},       // HEVC
+			{5, 0x81, 0x31, 'e', 'n', 'g'}, // audio
+			{4, 0x90, 'e', 'n', 'g'},       // graphics
+			{5, 0x92, 1, 'e', 'n', 'g'},    // text
+			{1, 0xff},                      // unknown coding type is still skippable
+		} {
+			entry := append([]byte{3, 1, 0x10, 0x11}, attributes...)
+			for n := 0; n <= len(entry); n++ {
+				t.Run(fmt.Sprintf("table%d/type%x/bytes%d", table, attributes[1], n), func(t *testing.T) {
+					data := timelineFixture(1, 45001, 1)[:124]
+					clear(data[112:119])
+					data[112+table] = 1
+					data = append(data, entry[:n]...)
+					p := NewPlaylistFile(&memFileInfo{name: "00000.MPLS", data: data}, settings.Settings{})
+					sf := NewStreamFile(&memFileInfo{name: "00001.M2TS"})
+					cf := NewStreamClipFile(&memFileInfo{name: "00001.CLPI"})
+					err := p.Scan(map[string]*StreamFile{sf.Name: sf}, map[string]*StreamClipFile{cf.Name: cf})
+					if n < len(entry) {
+						if err == nil || !strings.Contains(err.Error(), "truncated") {
+							t.Fatalf("cut entry: got %v, want truncation error", err)
+						}
+					} else if err != nil {
+						t.Fatalf("complete entry: %v", err)
+					}
+				})
+			}
 		}
 	}
 }

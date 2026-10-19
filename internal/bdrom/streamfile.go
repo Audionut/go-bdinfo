@@ -1058,7 +1058,10 @@ func (s *StreamFile) ScanWithProgress(ctx context.Context, playlists []*Playlist
 	// First read grabs 192 bytes to detect sync/packet size. For 188-byte TS packets this
 	// includes the first 4 bytes of the next packet; carry those forward.
 	carryLen := len(first) - packetSize
-	sourceBytes := int64(len(first))
+	var sourceBytes int64
+	if collection != nil {
+		sourceBytes = int64(len(first))
+	}
 
 	// Buffer includes room for carry bytes and a remainder (up to packetSize-1).
 	buf := make([]byte, chunkSize+packetSize)
@@ -1070,7 +1073,9 @@ func (s *StreamFile) ScanWithProgress(ctx context.Context, playlists []*Playlist
 			return err
 		}
 		n, err := f.Read(buf[carryLen : carryLen+chunkSize])
-		sourceBytes += int64(n)
+		if collection != nil {
+			sourceBytes += int64(n)
+		}
 
 		n += carryLen
 		aligned := n - (n % packetSize)

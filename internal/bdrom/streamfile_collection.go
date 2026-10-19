@@ -40,6 +40,7 @@ type videoDelivery struct {
 	result                *video.StreamResult
 	data                  []byte
 	starts                []video.PESStart
+	batchHeaders          []byte
 	offset                uint64
 	segment               uint64
 	err                   error
@@ -184,6 +185,17 @@ func (d *videoDelivery) flush(ctx context.Context, terminal bool) {
 	remaining := len(d.starts) - n
 	clear(d.starts[remaining:])
 	d.starts = d.starts[:remaining]
+	// Headers are borrowed for one callback. Keep any boundary at the chunk end
+	// for the next callback, then reuse the rest of the batch's header storage.
+	used := 0
+	for i := range d.starts {
+		header := d.starts[i].Header
+		end := used + len(header)
+		copy(d.batchHeaders[used:end], header)
+		d.starts[i].Header = d.batchHeaders[used:end:end]
+		used = end
+	}
+	d.batchHeaders = d.batchHeaders[:used]
 	if terminal && len(d.starts) > 0 {
 		d.flush(ctx, true)
 	}
@@ -527,7 +539,13 @@ func (c *videoCollection) packet(pkt []byte, size, syncOffset int) {
 		if d.callbackFailed {
 			return
 		}
-		d.boundary.Header = bytes.Clone(d.header[:d.headerNeed])
+		if d.batchHeaders == nil {
+			d.batchHeaders = make([]byte, 0, collectionBoundaryLimit*len(d.header))
+		}
+		start := len(d.batchHeaders)
+		d.batchHeaders = append(d.batchHeaders, d.header[:d.headerNeed]...)
+		end := len(d.batchHeaders)
+		d.boundary.Header = d.batchHeaders[start:end:end]
 		d.starts = append(d.starts, d.boundary)
 		d.boundary.Header = nil
 		d.headerNeed = 0

@@ -12,8 +12,8 @@ import (
 )
 
 // PlaylistTimeline retains exact MPLS occurrences in playback order.
-// Times use 45,000 ticks/second; PES clocks use 90,000. SelectedAngle is zero.
-// Each item identifies its selected alternative and retains the other angles.
+// Times use 45,000 ticks/second; PES clocks use 90,000.
+// The default angle is Items[i].Angles[0]; other angles are retained for inspection.
 // Complete means timing and selected STC clock associations are valid.
 // It does not mean that video or HDR metadata was extracted.
 // Scanned indicates that Run attempted a scan. See Result.Collection for outcomes.
@@ -21,13 +21,12 @@ import (
 // Run invalidates that clock association if it finds bare 188-byte TS packets.
 // Err explains invalid or unsupported timing. Returned slices are owned snapshots.
 type PlaylistTimeline struct {
-	Name          string
-	SelectedAngle int
-	Items         []PlayItem
-	Duration45    uint64
-	Complete      bool
-	Scanned       bool
-	Err           error
+	Name       string
+	Items      []PlayItem
+	Duration45 uint64
+	Complete   bool
+	Scanned    bool
+	Err        error
 }
 
 // PlayItem is one occurrence, including repeated uses of the same physical clip.
@@ -35,7 +34,7 @@ type PlaylistTimeline struct {
 // Offset45 and Duration45 use integer ticks, counted once per item.
 // ConnectionCondition preserves the raw join condition. It cannot alone prove
 // that decoder or metadata state continues across the join.
-// SelectedAlternative indexes Angles and currently equals zero.
+// Angles[0] is the default angle. Configurable angle selection is not supported.
 // Err covers unsupported join conditions.
 type PlayItem struct {
 	Index               int
@@ -44,7 +43,6 @@ type PlayItem struct {
 	Offset45            uint64
 	Duration45          uint64
 	ConnectionCondition uint8
-	SelectedAlternative int
 	Angles              []Angle
 	Err                 error
 }
@@ -66,13 +64,19 @@ type Angle struct {
 	Err            error
 }
 
+const (
+	connectionNonSeamless = 1
+	connectionSeamless5   = 5
+	connectionSeamless6   = 6
+)
+
 func buildTimelines(playlists []*bdrom.PlaylistFile, streams map[string]*bdrom.StreamFile, scanned bool) []PlaylistTimeline {
 	out := make([]PlaylistTimeline, 0, len(playlists))
 	for _, p := range playlists {
 		t := PlaylistTimeline{Name: p.Name, Duration45: p.TimelineDuration45, Scanned: scanned, Err: p.TimelineErr, Complete: p.CaptureTimeline && p.TimelineErr == nil}
 		for _, item := range p.TimelineItems {
 			entry := PlayItem{Index: item.Index, In45: item.In45, Out45: item.Out45, Offset45: item.Offset45, Duration45: item.Duration45, ConnectionCondition: item.Connection}
-			if item.Connection != 1 && item.Connection != 5 && item.Connection != 6 {
+			if item.Connection != connectionNonSeamless && item.Connection != connectionSeamless5 && item.Connection != connectionSeamless6 {
 				entry.Err = fmt.Errorf("%w: connection condition %d", video.ErrUnsupportedMapping, item.Connection)
 			}
 			for _, a := range item.Angles {

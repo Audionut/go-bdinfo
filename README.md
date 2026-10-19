@@ -99,8 +99,11 @@ Notes:
 Set `Options.IncludeTimeline` to populate `Result.Timelines`. These retain the
 original unsigned MPLS IN/OUT times and integer playlist offsets in **45 kHz ticks**.
 Each item keeps its clip, repeated uses, alternate angles, video mappings, join
-condition, and CLPI clock sequence. Angle zero is selected; other angles are
-available for inspection.
+condition, and CLPI clock sequence. `PlayItem.Angles[0]` is the default angle;
+other angles are available for inspection. Configurable angle selection is not
+implemented. The development-only `SelectedAngle` and `SelectedAlternative`
+fields have been removed; callers should check that `Angles` is nonempty and use
+its first entry for the default path.
 
 `Run` returns timelines for the playlists contributing to its selected report.
 Summary and full-report selection can differ. `DiscoverPlaylists` returns timing
@@ -157,8 +160,15 @@ collects typed metadata and handles failed playlist extraction explicitly.
 The decoder owns frame association, inherited metadata, presentation order, and
 playlist assembly. Its join tests use both the connection condition and decoded
 HEVC state; the connection condition alone cannot prove a seamless join.
-The bridge is a separate development module with local replacements and its own
-Go version requirement. It is not a released dependency of BDInfo.
+The linked bridge revision predates removal of the angle-selection fields and
+needs that migration before it can build against this branch. The bridge is a
+separate development module with local replacements and its own Go version
+requirement. It is not a released dependency of BDInfo.
+
+The same transport callbacks can feed Dolby Vision metadata extraction. They do
+not identify or pair separate base-layer and enhancement-layer tracks. A complete
+transport scan is not proof of complete Dolby Vision metadata extraction; the
+external decoder must validate the input layout and frame associations.
 
 Use keyed `Options` and `Result` literals. Adding fields preserves keyed callers,
 but Go requires positional struct literals to specify every field.
