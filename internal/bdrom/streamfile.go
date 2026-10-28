@@ -137,7 +137,7 @@ func parsePATPMTPIDSection(section []byte) (uint16, bool) {
 	return 0, false
 }
 
-func detectPMTStreamOrder(ctx context.Context, fileInfo fs.FileInfo) ([]uint16, bool) {
+func detectPMTStreamOrder(ctx context.Context, fileInfo fs.FileInfo, mvc *ssifMVCProbe) ([]uint16, bool) {
 	if fileInfo == nil {
 		return nil, false
 	}
@@ -194,6 +194,9 @@ func detectPMTStreamOrder(ctx context.Context, fileInfo fs.FileInfo) ([]uint16, 
 		}
 	}
 	processPacket := func(pkt []byte) {
+		if mvc != nil {
+			mvc.packet(pkt, syncOffset)
+		}
 		if len(pkt) <= syncOffset || pkt[syncOffset] != 0x47 {
 			return
 		}
@@ -629,7 +632,18 @@ func (s *StreamFile) ScanWithProgress(ctx context.Context, playlists []*Playlist
 			s.Collection = collection.finish(cause, collectionClean)
 		}()
 	}
-	initialPMTOrder, _ := detectPMTStreamOrder(ctx, fileInfo)
+	var mvc *ssifMVCProbe
+	if scanSettings.EnableSSIF && s.InterleavedFile != nil && s.InterleavedFile.FileInfo != nil {
+		mvc = newSSIFMVCProbe(ctx)
+	}
+	initialPMTOrder, _ := detectPMTStreamOrder(ctx, fileInfo, mvc)
+	if mvc != nil && ctx.Err() == nil {
+		for _, pid := range mvc.streams() {
+			if _, exists := s.Streams[pid]; !exists {
+				s.Streams[pid] = &stream.VideoStream{Stream: stream.Stream{PID: pid, StreamType: stream.StreamTypeMVCVideo}}
+			}
+		}
+	}
 
 	f, err := fileInfo.OpenRead()
 	if err != nil {
@@ -1149,6 +1163,12 @@ func (s *StreamFile) ScanWithProgress(ctx context.Context, playlists []*Playlist
 					tag = &state.streamTag
 				}
 				codec.ScanAVC(concrete, data, tag)
+			case stream.StreamTypeMVCVideo:
+				// Official TSCodecMVC reports presence and VBR, not decoded dimensions.
+				if state.pesStartCount >= 2 || (state.pesStarted && state.pesPacketRemaining == 0) {
+					concrete.IsVBR = true
+					concrete.IsInitialized = true
+				}
 			case stream.StreamTypeHEVCVideo:
 				codec.ScanHEVC(concrete, data, scanSettings)
 			case stream.StreamTypeMPEG2Video:
@@ -1182,7 +1202,7 @@ func (s *StreamFile) ScanWithProgress(ctx context.Context, playlists []*Playlist
 
 	s.finalizePlaylistVBR(playlists)
 	if len(pmtStreamOrder) == 0 {
-		if detectedOrder, ok := detectPMTStreamOrder(ctx, fileInfo); ok {
+		if detectedOrder, ok := detectPMTStreamOrder(ctx, fileInfo, nil); ok {
 			pmtStreamOrder = detectedOrder
 		}
 	}
