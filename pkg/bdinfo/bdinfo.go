@@ -6,8 +6,10 @@ package bdinfo
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/autobrr/go-bdinfo/internal/bdrom"
@@ -147,6 +149,27 @@ type Result struct {
 // The returned Result has Disc and Playlists populated; Report, QuickSummary and ForumsBlock are always empty.
 // Requested timelines follow Playlists; main/biggest and summary settings do not narrow discovery.
 func DiscoverPlaylists(ctx context.Context, options Options) (Result, error) {
+	return discoverPlaylists(ctx, options, nil)
+}
+
+// DiscoverPlaylistsFS discovers metadata through a borrowed filesystem. Path is
+// a logical root (default "."), never a host path. The caller owns containment,
+// IO limits and concurrent filesystem support. It never opens video payloads.
+// Non-absent filesystem failures are terminal, including optional metadata IO.
+func DiscoverPlaylistsFS(ctx context.Context, filesystem fs.FS, options Options) (Result, error) {
+	if filesystem == nil {
+		return Result{}, errors.New("filesystem is required")
+	}
+	if options.Path == "" {
+		options.Path = "."
+	}
+	if !fs.ValidPath(options.Path) || strings.ContainsAny(options.Path, `\:`) {
+		return Result{}, errors.New("invalid filesystem root")
+	}
+	return discoverPlaylists(ctx, options, filesystem)
+}
+
+func discoverPlaylists(ctx context.Context, options Options, filesystem fs.FS) (Result, error) {
 	if options.Path == "" {
 		return Result{}, errors.New("path is required")
 	}
@@ -165,7 +188,13 @@ func DiscoverPlaylists(ctx context.Context, options Options) (Result, error) {
 	})
 
 	cfg := toInternalSettings(options.Settings)
-	rom, err := bdrom.New(options.Path, cfg)
+	var rom *bdrom.BDROM
+	var err error
+	if filesystem == nil {
+		rom, err = bdrom.New(options.Path, cfg)
+	} else {
+		rom, err = bdrom.NewFS(ctx, filesystem, options.Path, cfg)
+	}
 	if err != nil {
 		return Result{}, err
 	}
@@ -195,6 +224,9 @@ func DiscoverPlaylists(ctx context.Context, options Options) (Result, error) {
 		OccurredAt: time.Now(),
 	})
 	scan := rom.ScanMetadataWithProgress(ctx, scanProgressFunc(options))
+	if err := rom.FileSystemError(); err != nil {
+		return Result{}, err
+	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
@@ -225,6 +257,9 @@ func DiscoverPlaylists(ctx context.Context, options Options) (Result, error) {
 		OccurredAt: time.Now(),
 	})
 
+	if err := rom.FileSystemError(); err != nil {
+		return Result{}, err
+	}
 	return result, nil
 }
 

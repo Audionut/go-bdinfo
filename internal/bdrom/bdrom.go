@@ -9,6 +9,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	stdfs "io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -310,6 +311,31 @@ func New(path string, settings settings.Settings) (*BDROM, error) {
 		cleanup = func() { _ = isoFS.Unmount() }
 	}
 
+	return newFileSystemROM(path, rootPath, volumeLabel, settings, fileSystem, cleanup)
+}
+
+// NewFS borrows a standard filesystem; only its logical names are used for IO.
+func NewFS(ctx context.Context, source stdfs.FS, root string, cfg settings.Settings) (*BDROM, error) {
+	fileSystem := fs.NewIOFileSystem(ctx, source)
+	rom, err := newFileSystemROM(root, root, "", cfg, fileSystem, func() {})
+	if terminal := fileSystem.Err(); terminal != nil {
+		if rom != nil {
+			rom.Close()
+		}
+		return nil, terminal
+	}
+	return rom, err
+}
+
+// FileSystemError reports terminal IO failures retained by a borrowed filesystem.
+func (rom *BDROM) FileSystemError() error {
+	if source, ok := rom.fileSystem.(interface{ Err() error }); ok {
+		return source.Err()
+	}
+	return nil
+}
+
+func newFileSystemROM(path, rootPath, volumeLabel string, settings settings.Settings, fileSystem fs.FileSystem, cleanup func()) (*BDROM, error) {
 	rootDir, err := fileSystem.GetDirectoryInfo(rootPath)
 	if err != nil {
 		cleanup()
